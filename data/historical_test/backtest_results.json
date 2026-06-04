@@ -1,0 +1,38 @@
+[
+  {
+    "asset": "CRV",
+    "ex1": "binance",
+    "ex2": "htx",
+    "model": "ou",
+    "n_trades": 97,
+    "total_net_bps": 4431.56,
+    "total_gross_bps": 7341.56,
+    "total_fees_bps": 2910.0,
+    "win_rate": 1.0,
+    "sharpe": 1.139,
+    "profit_factor": null,
+    "avg_holding": 5.1,
+    "max_drawdown_bps": 0.0,
+    "spread_std_bps": 59.76,
+    "ou_half_life": 3.3,
+    "n_datapoints": 1440
+  },
+  {
+    "asset": "CRV",
+    "ex1": "binance",
+    "ex2": "htx",
+    "model": "zscore",
+    "n_trades": 70,
+    "total_net_bps": 4169.94,
+    "total_gross_bps": 6269.94,
+    "total_fees_bps": 2100.0,
+    "win_rate": 1.0,
+    "sharpe": 1.125,
+    "profit_factor": null,
+    "avg_holding": 3.3,
+    "max_drawdown_bps": 0.0,
+    "spread_std_bps": 59.76,
+    "ou_half_life": 3.3,
+    "n_datapoints": 1440
+  }
+]

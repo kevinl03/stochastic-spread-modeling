@@ -1,0 +1,255 @@
+{
+  "completed": {
+    "CRV/binance": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:27:20.130807+00:00"
+    },
+    "CRV/kraken": {
+      "rows": 720,
+      "finished_at": "2026-06-02T21:27:23.046091+00:00"
+    },
+    "CRV/kucoin": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:27:34.925984+00:00"
+    },
+    "CRV/bybit": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:28:09.963132+00:00"
+    },
+    "CRV/okx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:28:57.840720+00:00"
+    },
+    "CRV/gateio": {
+      "rows": 0,
+      "skipped": true,
+      "reason": "no_data",
+      "finished_at": "2026-06-02T21:29:11.529868+00:00"
+    },
+    "CRV/bitget": {
+      "rows": 41559,
+      "finished_at": "2026-06-02T21:29:25.851940+00:00"
+    },
+    "CRV/mexc": {
+      "rows": 43198,
+      "finished_at": "2026-06-02T21:29:56.273736+00:00"
+    },
+    "CRV/htx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:30:25.712923+00:00"
+    },
+    "CRV/coinbase": {
+      "rows": 2591,
+      "finished_at": "2026-06-02T21:30:36.548765+00:00"
+    },
+    "CRV/cryptocom": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:31:39.883010+00:00"
+    },
+    "CRV/phemex": {
+      "rows": 996,
+      "finished_at": "2026-06-02T21:31:42.716131+00:00"
+    },
+    "WIF/binance": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:31:59.057136+00:00"
+    },
+    "WIF/kraken": {
+      "rows": 716,
+      "finished_at": "2026-06-02T21:31:59.773988+00:00"
+    },
+    "WIF/kucoin": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:32:09.819470+00:00"
+    },
+    "WIF/bybit": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:32:40.347370+00:00"
+    },
+    "WIF/okx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:33:25.922396+00:00"
+    },
+    "WIF/gateio": {
+      "rows": 0,
+      "skipped": true,
+      "reason": "no_data",
+      "finished_at": "2026-06-02T21:33:35.484767+00:00"
+    },
+    "WIF/bitget": {
+      "rows": 41559,
+      "finished_at": "2026-06-02T21:33:47.539209+00:00"
+    },
+    "WIF/mexc": {
+      "rows": 43194,
+      "finished_at": "2026-06-02T21:34:15.661512+00:00"
+    },
+    "WIF/htx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:34:41.738017+00:00"
+    },
+    "WIF/coinbase": {
+      "rows": 1600,
+      "finished_at": "2026-06-02T21:34:49.210758+00:00"
+    },
+    "WIF/cryptocom": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:35:49.947656+00:00"
+    },
+    "WIF/phemex": {
+      "rows": 992,
+      "finished_at": "2026-06-02T21:35:51.083242+00:00"
+    },
+    "PEPE/binance": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:36:06.970334+00:00"
+    },
+    "PEPE/kraken": {
+      "rows": 711,
+      "finished_at": "2026-06-02T21:36:07.674190+00:00"
+    },
+    "PEPE/kucoin": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:36:17.552692+00:00"
+    },
+    "PEPE/bybit": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:36:49.687927+00:00"
+    },
+    "PEPE/okx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:37:35.635136+00:00"
+    },
+    "PEPE/gateio": {
+      "rows": 0,
+      "skipped": true,
+      "reason": "no_data",
+      "finished_at": "2026-06-02T21:37:44.998788+00:00"
+    },
+    "PEPE/bitget": {
+      "rows": 41559,
+      "finished_at": "2026-06-02T21:37:57.739058+00:00"
+    },
+    "PEPE/mexc": {
+      "rows": 43190,
+      "finished_at": "2026-06-02T21:38:26.795985+00:00"
+    },
+    "PEPE/htx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:38:52.600574+00:00"
+    },
+    "PEPE/coinbase": {
+      "rows": 3885,
+      "finished_at": "2026-06-02T21:39:00.705704+00:00"
+    },
+    "PEPE/cryptocom": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:40:02.000978+00:00"
+    },
+    "PEPE/phemex": {
+      "rows": 988,
+      "finished_at": "2026-06-02T21:40:03.454164+00:00"
+    },
+    "DOGE/binance": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:40:19.880926+00:00"
+    },
+    "DOGE/kraken": {
+      "rows": 707,
+      "finished_at": "2026-06-02T21:40:20.592233+00:00"
+    },
+    "DOGE/kucoin": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:40:30.308591+00:00"
+    },
+    "DOGE/bybit": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:40:54.473574+00:00"
+    },
+    "DOGE/okx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:41:40.898714+00:00"
+    },
+    "DOGE/gateio": {
+      "rows": 0,
+      "skipped": true,
+      "reason": "no_data",
+      "finished_at": "2026-06-02T21:41:50.298351+00:00"
+    },
+    "DOGE/bitget": {
+      "rows": 41559,
+      "finished_at": "2026-06-02T21:42:04.017667+00:00"
+    },
+    "DOGE/mexc": {
+      "rows": 43185,
+      "finished_at": "2026-06-02T21:42:32.492124+00:00"
+    },
+    "DOGE/htx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:42:58.246766+00:00"
+    },
+    "DOGE/coinbase": {
+      "rows": 5969,
+      "finished_at": "2026-06-02T21:43:06.593605+00:00"
+    },
+    "DOGE/cryptocom": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:44:06.859723+00:00"
+    },
+    "DOGE/phemex": {
+      "rows": 984,
+      "finished_at": "2026-06-02T21:44:07.721408+00:00"
+    },
+    "SOL/binance": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:44:23.887929+00:00"
+    },
+    "SOL/kraken": {
+      "rows": 703,
+      "finished_at": "2026-06-02T21:44:24.597787+00:00"
+    },
+    "SOL/kucoin": {
+      "rows": 43197,
+      "finished_at": "2026-06-02T21:44:34.592870+00:00"
+    },
+    "SOL/bybit": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:45:02.414539+00:00"
+    },
+    "SOL/okx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:45:48.035592+00:00"
+    },
+    "SOL/gateio": {
+      "rows": 0,
+      "skipped": true,
+      "reason": "no_data",
+      "finished_at": "2026-06-02T21:45:57.421971+00:00"
+    },
+    "SOL/bitget": {
+      "rows": 41559,
+      "finished_at": "2026-06-02T21:46:10.081733+00:00"
+    },
+    "SOL/mexc": {
+      "rows": 43181,
+      "finished_at": "2026-06-02T21:46:38.957340+00:00"
+    },
+    "SOL/htx": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:47:03.585960+00:00"
+    },
+    "SOL/coinbase": {
+      "rows": 5989,
+      "finished_at": "2026-06-02T21:47:12.545714+00:00"
+    },
+    "SOL/cryptocom": {
+      "rows": 43200,
+      "finished_at": "2026-06-02T21:48:13.493455+00:00"
+    },
+    "SOL/phemex": {
+      "rows": 979,
+      "finished_at": "2026-06-02T21:48:14.797980+00:00"
+    }
+  },
+  "partial": {}
+}

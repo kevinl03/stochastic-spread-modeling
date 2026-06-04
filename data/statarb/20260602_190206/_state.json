@@ -1,0 +1,1 @@
+{"snapshot_idx": 1, "last_ts": "2026-06-02T19:02:56.972644+00:00", "start_ts": "2026-06-02T19:02:06.508059+00:00", "config": {"interval_sec": 9999, "hours": 0.001, "ob_depth": 20, "candles": 5, "trades_limit": 50, "skip_orderbook": true, "skip_ohlcv": true, "skip_trades": true, "skip_funding": true, "skip_oi": true, "skip_withdrawal_status": true, "skip_exchange_status": true}}

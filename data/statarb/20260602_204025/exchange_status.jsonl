@@ -1,0 +1,5 @@
+{"type": "exchange_status", "ts": "2026-06-02T20:42:33.598395+00:00", "snapshot_idx": 1, "exchange": "binance", "status": "ok", "updated": null, "message": "normal"}
+{"type": "exchange_status", "ts": "2026-06-02T20:42:33.598395+00:00", "snapshot_idx": 1, "exchange": "kraken", "status": "ok", "updated": null, "message": null}
+{"type": "exchange_status", "ts": "2026-06-02T20:42:33.598395+00:00", "snapshot_idx": 1, "exchange": "kucoin", "status": "ok", "updated": null, "message": null}
+{"type": "exchange_status", "ts": "2026-06-02T20:42:33.598395+00:00", "snapshot_idx": 1, "exchange": "okx", "status": "ok", "updated": null, "message": ""}
+{"type": "exchange_status", "ts": "2026-06-02T20:42:33.598395+00:00", "snapshot_idx": 1, "exchange": "mexc", "status": "ok", "updated": null, "message": null}

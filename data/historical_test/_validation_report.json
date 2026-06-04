@@ -1,0 +1,28 @@
+[
+  {
+    "asset": "CRV",
+    "exchange": "binance",
+    "valid": true,
+    "rows": 1440,
+    "expected_rows": 1440,
+    "coverage_pct": 100.0,
+    "gaps_gt_5min": 0,
+    "largest_gap_min": 0,
+    "price_outliers": 0,
+    "start": "2026-06-01T21:26:00+00:00",
+    "end": "2026-06-02T21:25:00+00:00"
+  },
+  {
+    "asset": "CRV",
+    "exchange": "htx",
+    "valid": true,
+    "rows": 1440,
+    "expected_rows": 1440,
+    "coverage_pct": 100.0,
+    "gaps_gt_5min": 0,
+    "largest_gap_min": 0,
+    "price_outliers": 0,
+    "start": "2026-06-01T21:26:00+00:00",
+    "end": "2026-06-02T21:25:00+00:00"
+  }
+]
