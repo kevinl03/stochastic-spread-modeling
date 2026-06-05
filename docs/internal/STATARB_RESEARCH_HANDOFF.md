@@ -1,4 +1,4 @@
-# Statistical Arbitrage Research ΓÇö Findings & Handoff
+# Statistical Arbitrage Research — Findings & Handoff
 
 **Author:** Kevin Litvin (automated research pipeline)
 **Date:** June 2, 2026
@@ -17,10 +17,10 @@ This document summarizes a research pivot from A\*-based stablecoin arbitrage to
 | **WIF** | 93 bps | **10/10** | +49,544 bps | binance-cryptocom (z-score) | 0.93 |
 | **PEPE** | 22 bps | **10/10** | +37,621 bps | binance-cryptocom (OU) | 2.38 |
 | **CRV** | 78 bps | **10/10** | +27,411 bps | cryptocom-mexc (OU) | 1.50 |
-| **DOGE** | 11 bps | **0/10** | -21,181 bps | ΓÇö | ΓÇö |
-| **SOL** | 7.5 bps | **0/10** | -44,849 bps | ΓÇö | ΓÇö |
+| **DOGE** | 11 bps | **0/10** | -21,181 bps | — | — |
+| **SOL** | 7.5 bps | **0/10** | -44,849 bps | — | — |
 
-**Pattern:** Works when spread std >> fees (~15 bps). WIF/PEPE/CRV have std 22-93 bps ΓåÆ all profitable. DOGE/SOL have std 7-11 bps ΓåÆ all unprofitable.
+**Pattern:** Works when spread std >> fees (~15 bps). WIF/PEPE/CRV have std 22-93 bps → all profitable. DOGE/SOL have std 7-11 bps → all unprofitable.
 
 **Caveat:** These results use 1-minute close prices with no slippage, no bid-ask crossing cost, and zero execution latency. Realistic production profits would be significantly lower (see Section 7).
 
@@ -31,7 +31,7 @@ This document summarizes a research pivot from A\*-based stablecoin arbitrage to
 | Phase | Finding |
 |-------|---------|
 | **Phase 0** (prior work) | A\* pathfinding finds profitable stablecoin routes, but paths require pre-positioned capital on every exchange in the path |
-| **Stablecoin backtest** | 120 snapshots across 7 stablecoins, 10 exchanges. **0 profitable trades.** Fee/spread-std ratio = 25.9x ΓÇö fees dominate |
+| **Stablecoin backtest** | 120 snapshots across 7 stablecoins, 10 exchanges. **0 profitable trades.** Fee/spread-std ratio = 25.9x — fees dominate |
 | **Volatile asset pivot** | Switched to CRV, WIF, PEPE, DOGE, SOL. Spread std jumps from 0.7 bps to 26-94 bps |
 | **1-day CRV test** | 97 trades, 100% win rate, +4,431 bps net. OU half-life 3.3 minutes |
 | **30-day validation** | CRV and WIF confirmed over 43,200 candles per exchange. 18/20 CRV pair-models profitable, 13/20 WIF pair-models profitable |
@@ -75,17 +75,17 @@ Binance, Kraken, KuCoin, Bybit, OKX, Gate.io, Bitget, MEXC, HTX, Coinbase, Crypt
 
 ```
 data/
-Γö£ΓöÇΓöÇ historical/              # 30-day 1-min OHLCV Parquet files
-Γöé   Γö£ΓöÇΓöÇ CRV/                 #   {exchange}.parquet per exchange
-Γöé   Γö£ΓöÇΓöÇ WIF/
-Γöé   Γö£ΓöÇΓöÇ PEPE/
-Γöé   Γö£ΓöÇΓöÇ DOGE/
-Γöé   ΓööΓöÇΓöÇ SOL/
-Γö£ΓöÇΓöÇ statarb/                 # Live collector JSONL outputs
-Γöé   Γö£ΓöÇΓöÇ 20260602_190651/     #   Stablecoin 120-snapshot run
-Γöé   ΓööΓöÇΓöÇ 20260602_211358/     #   Volatile asset 2-hour run
-ΓööΓöÇΓöÇ dex/                     # DEX collector JSONL outputs
-    ΓööΓöÇΓöÇ 20260602_142316/     #   12-token 2-hour run
+├── historical/              # 30-day 1-min OHLCV Parquet files
+│   ├── CRV/                 #   {exchange}.parquet per exchange
+│   ├── WIF/
+│   ├── PEPE/
+│   ├── DOGE/
+│   └── SOL/
+├── statarb/                 # Live collector JSONL outputs
+│   ├── 20260602_190651/     #   Stablecoin 120-snapshot run
+│   └── 20260602_211358/     #   Volatile asset 2-hour run
+└── dex/                     # DEX collector JSONL outputs
+    └── 20260602_142316/     #   12-token 2-hour run
 ```
 
 ### 3.6 Exchange Data Quality (30-day download)
@@ -136,9 +136,9 @@ $$z_t = \frac{S_t - \bar{S}_{window}}{\sigma_{window}}$$
 
 | Exchange Pair | Round-trip Fee (bps) |
 |--------------|---------------------|
-| Binance Γåö any | 10-20 (taker 0.10%) |
-| MEXC Γåö any | 15-20 |
-| Crypto.com Γåö any | 15-20 |
+| Binance ↔ any | 10-20 (taker 0.10%) |
+| MEXC ↔ any | 15-20 |
+| Crypto.com ↔ any | 15-20 |
 | Worst case | 30 (0.15% per side) |
 
 Fees are deducted per trade. The backtest uses the actual CCXT fee schedule from `scripts/fees.py`.
@@ -156,8 +156,8 @@ Fees are deducted per trade. The backtest uses the actual CCXT fee schedule from
 | WIF | 93 bps | 10/10 | binance-cryptocom (z-score) | +49,544 | 0.93 | Crypto.com |
 | PEPE | 22 bps | 10/10 | binance-cryptocom (OU) | +37,621 | 2.38 | Crypto.com |
 | CRV | 78 bps | 10/10 | cryptocom-mexc (OU) | +27,411 | 1.50 | Crypto.com |
-| DOGE | 11 bps | 0/10 | ΓÇö | -21,181 | ΓÇö | ΓÇö |
-| SOL | 7.5 bps | 0/10 | ΓÇö | -44,849 | ΓÇö | ΓÇö |
+| DOGE | 11 bps | 0/10 | — | -21,181 | — | — |
+| SOL | 7.5 bps | 0/10 | — | -44,849 | — | — |
 
 **Critical threshold:** Spread std must be >~15 bps (the typical round-trip fee) for the strategy to work. Assets below this threshold lose money consistently.
 
@@ -174,10 +174,10 @@ Fees are deducted per trade. The backtest uses the actual CCXT fee schedule from
 | cryptocom-htx | OU | 37,834 | 15,125 | 22,709 | 550 | 100% | 1.04 | 24 min |
 | bybit-cryptocom | OU | 38,596 | 16,153 | 22,443 | 923 | 100% | 1.42 | 39 min |
 | binance-cryptocom | OU | 38,823 | 16,993 | 21,830 | 971 | 100% | 1.24 | 40 min |
-| cryptocom-mexc | z-score | 22,191 | 11,063 | 11,128 | 885 | 73% | 0.28 | ΓÇö |
+| cryptocom-mexc | z-score | 22,191 | 11,063 | 11,128 | 885 | 73% | 0.28 | — |
 | htx-kucoin | OU | 17,649 | 10,080 | 7,569 | 336 | 97% | 0.58 | 5 min |
 
-**Key observation:** Crypto.com is the "slow" exchange for CRV ΓÇö its price lags all others by ~38 minutes.
+**Key observation:** Crypto.com is the "slow" exchange for CRV — its price lags all others by ~38 minutes.
 
 ### 5.2 WIF (30 days, 43,200 candles per exchange)
 
@@ -186,9 +186,9 @@ Fees are deducted per trade. The backtest uses the actual CCXT fee schedule from
 | Pair | Model | Gross (bps) | Fees (bps) | Net (bps) | Trades | Win% | Sharpe | OU Half-Life |
 |------|-------|------------|-----------|----------|--------|------|--------|-------------|
 | binance-mexc | OU | 79,160 | 20,115 | **59,045** | 1,341 | 100% | 2.46 | 1.5 min |
-| binance-mexc | z-score | 72,999 | 20,025 | 52,974 | 1,335 | 100% | 2.21 | ΓÇö |
-| binance-bitget | z-score | 70,155 | 25,020 | 45,135 | 1,251 | 100% | 2.21 | ΓÇö |
-| binance-okx | z-score | 68,763 | 24,780 | 43,983 | 1,239 | 100% | 2.25 | ΓÇö |
+| binance-mexc | z-score | 72,999 | 20,025 | 52,974 | 1,335 | 100% | 2.21 | — |
+| binance-bitget | z-score | 70,155 | 25,020 | 45,135 | 1,251 | 100% | 2.21 | — |
+| binance-okx | z-score | 68,763 | 24,780 | 43,983 | 1,239 | 100% | 2.25 | — |
 | binance-cryptocom | OU | 42,066 | 7,245 | 34,821 | 414 | 100% | 1.49 | 15 min |
 | binance-htx | OU | 57,826 | 27,000 | 30,826 | 900 | 100% | 1.88 | 2 min |
 
@@ -201,7 +201,7 @@ Fees are deducted per trade. The backtest uses the actual CCXT fee schedule from
 | Pair | Model | Gross (bps) | Fees (bps) | Net (bps) | Trades | Win% | Sharpe | OU Half-Life |
 |------|-------|------------|-----------|----------|--------|------|--------|-------------|
 | binance-cryptocom | OU | 55,698 | 18,078 | **37,621** | 1,033 | 100% | 2.38 | 2 min |
-| binance-cryptocom | z-score | 54,736 | 20,143 | 34,593 | 1,151 | 99% | 1.56 | ΓÇö |
+| binance-cryptocom | z-score | 54,736 | 20,143 | 34,593 | 1,151 | 99% | 1.56 | — |
 | bybit-cryptocom | OU | 50,011 | 26,723 | 23,289 | 1,527 | 100% | 1.32 | 5 min |
 | cryptocom-okx | OU | 51,112 | 28,035 | 23,077 | 1,602 | 100% | 1.24 | 5 min |
 | bitget-cryptocom | OU | 64,808 | 45,570 | 19,238 | 2,604 | 77% | 0.69 | 5 min |
@@ -218,11 +218,11 @@ Fees are deducted per trade. The backtest uses the actual CCXT fee schedule from
 | htx-mexc | OU | -23,956 | 2,197 | 4.6% | -1.29 |
 | binance-htx | OU | -39,889 | 2,452 | 2.5% | -2.72 |
 
-**Key observation:** DOGE is too liquid/efficient ΓÇö the spread between exchanges is too small to overcome fees. The strategy generates many trades but nearly all lose money.
+**Key observation:** DOGE is too liquid/efficient — the spread between exchanges is too small to overcome fees. The strategy generates many trades but nearly all lose money.
 
 ### 5.5 SOL (30 days, 43,200 candles per exchange)
 
-**0 of 10 pair-models are net profitable.** Spread std (7.5 bps) is the lowest of all assets ΓÇö the most efficient market.
+**0 of 10 pair-models are net profitable.** Spread std (7.5 bps) is the lowest of all assets — the most efficient market.
 
 | Pair | Model | Net (bps) | Trades | Win% | Sharpe |
 |------|-------|----------|--------|------|--------|
@@ -280,8 +280,8 @@ Given that the OU model already achieves 100% win rate on historical close price
 
 | Factor | Backtest | Reality | Impact |
 |--------|----------|---------|--------|
-| Execution price | 1-min close | Must cross bid-ask spread | ΓêÆ10 to ΓêÆ40 bps per trade |
-| Slippage | None | Low-cap tokens on thin books | ΓêÆ5 to ΓêÆ10 bps |
+| Execution price | 1-min close | Must cross bid-ask spread | −10 to −40 bps per trade |
+| Slippage | None | Low-cap tokens on thin books | −5 to −10 bps |
 | Execution latency | 0 seconds | 1-10 seconds for API round-trip | 30-50% of signals missed |
 | Fill probability | 100% | Partial fills, requotes | Reduces trade count |
 | Capital rebalancing | Free/instant | Withdrawal fees + 10min-24hr delays | Periodic friction cost |
@@ -322,20 +322,20 @@ Applying realistic discounts to the WIF binance-mexc OU strategy:
 ## 8. Suggested Next Steps
 
 ### High Priority
-1. **Backtest with bid/ask prices** ΓÇö Re-run using actual bid/ask instead of close to model crossing cost
-2. **Add slippage model** ΓÇö Estimate market impact from order book depth
-3. **Paper trade** ΓÇö Run live signals for 24-48 hours, log what you would have traded, compare to actual price movement
-4. **Complete 5-asset validation** ΓÇö PEPE, DOGE, SOL downloads finishing (check `data/historical/`)
+1. **Backtest with bid/ask prices** — Re-run using actual bid/ask instead of close to model crossing cost
+2. **Add slippage model** — Estimate market impact from order book depth
+3. **Paper trade** — Run live signals for 24-48 hours, log what you would have traded, compare to actual price movement
+4. **Complete 5-asset validation** — PEPE, DOGE, SOL downloads finishing (check `data/historical/`)
 
 ### Medium Priority
-5. **Execution latency simulation** ΓÇö Add 2-5 second delay before entry in backtest
-6. **Capital rebalancing model** ΓÇö Simulate inventory drift and rebalancing costs
+5. **Execution latency simulation** — Add 2-5 second delay before entry in backtest
+6. **Capital rebalancing model** — Simulate inventory drift and rebalancing costs
 7. **Train ML model** on volatile data once collection completes
 
 ### Low Priority / Future
-8. **Build execution engine** ΓÇö Only if paper trading confirms edge
-9. **Expand asset universe** ΓÇö Screen more low/mid-cap tokens for slow-exchange effects
-10. **Cross-exchange websocket feeds** ΓÇö Reduce latency vs REST polling
+8. **Build execution engine** — Only if paper trading confirms edge
+9. **Expand asset universe** — Screen more low/mid-cap tokens for slow-exchange effects
+10. **Cross-exchange websocket feeds** — Reduce latency vs REST polling
 
 ---
 
@@ -382,21 +382,21 @@ python experiments/backtest_statarb.py data/statarb/20260602_190651
 
 ```
 experiments/
-Γö£ΓöÇΓöÇ collect_statarb_data.py      # 10-signal CEX live collector
-Γö£ΓöÇΓöÇ collect_dex_data.py          # DexScreener DEX collector
-Γö£ΓöÇΓöÇ download_historical_ohlcv.py # 30-day OHLCV downloader
-Γö£ΓöÇΓöÇ backtest_statarb.py          # Original JSONL backtester
-Γö£ΓöÇΓöÇ backtest_historical.py       # OU + z-score backtester (Parquet + JSONL)
-Γö£ΓöÇΓöÇ build_features.py            # 63-feature engineering pipeline
-ΓööΓöÇΓöÇ train_spread_model.py        # ML model trainer with walk-forward CV
+├── collect_statarb_data.py      # 10-signal CEX live collector
+├── collect_dex_data.py          # DexScreener DEX collector
+├── download_historical_ohlcv.py # 30-day OHLCV downloader
+├── backtest_statarb.py          # Original JSONL backtester
+├── backtest_historical.py       # OU + z-score backtester (Parquet + JSONL)
+├── build_features.py            # 63-feature engineering pipeline
+└── train_spread_model.py        # ML model trainer with walk-forward CV
 
 scripts/
-Γö£ΓöÇΓöÇ data.py                      # CCXT exchange data fetching
-Γö£ΓöÇΓöÇ fees.py                      # Fee schedule (TRADING_FEES_TAKER dict)
-ΓööΓöÇΓöÇ graph.py                     # Graph construction
+├── data.py                      # CCXT exchange data fetching
+├── fees.py                      # Fee schedule (TRADING_FEES_TAKER dict)
+└── graph.py                     # Graph construction
 
 data/
-Γö£ΓöÇΓöÇ historical/                  # 30-day Parquet files (per asset/exchange)
-Γö£ΓöÇΓöÇ statarb/                     # Live collector JSONL runs
-ΓööΓöÇΓöÇ dex/                         # DEX collector JSONL runs
+├── historical/                  # 30-day Parquet files (per asset/exchange)
+├── statarb/                     # Live collector JSONL runs
+└── dex/                         # DEX collector JSONL runs
 ```
