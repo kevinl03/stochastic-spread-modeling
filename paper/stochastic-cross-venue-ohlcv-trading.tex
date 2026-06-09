@@ -33,7 +33,7 @@
 %  ABSTRACT
 % ======================================================================
 \begin{abstract}
-Cross-exchange price deviations in cryptocurrency markets have been widely documented, yet few studies build and evaluate systematic trading strategies that exploit them. We present a \emph{cross-exchange} statistical arbitrage framework that models the price spread of identical assets across centralized exchanges as an Ornstein--Uhlenbeck (OU) process and generates trades when deviations exceed a calibrated threshold. Using 30 days of one-minute OHLCV data across 5~assets, 7~exchanges, and 50~exchange-pair--model combinations, we find that OU-based mean-reversion is highly profitable for assets whose cross-exchange spread standard deviation exceeds the round-trip transaction fee---specifically, WIF (93~bps spread std, Sharpe~2.46), PEPE (22~bps, Sharpe~2.38), and CRV (78~bps, Sharpe~1.50)---while assets with spread volatility below the fee threshold (DOGE at 11~bps, SOL at 7.5~bps) are uniformly unprofitable. We identify a structural \emph{price latency} on Crypto.com (38-minute lag for CRV) and MEXC (1.5-minute lag for WIF) as the primary microstructural driver of exploitable spreads. Our OU model consistently outperforms a rolling z-score baseline on both Sharpe ratio and win rate in the cross-exchange setting, contrasting with single-exchange findings in prior work. We contribute (i)~an empirically grounded profitability threshold ($\sigma_{\text{spread}} > c_{\text{fee}}$) for cross-exchange stat-arb viability, (ii)~a characterization of exchange-specific latency as a persistent microstructural inefficiency, and (iii)~an honest assessment of the gap between idealized backtests and realistic execution, estimating a 50--80\% reduction in net profits under conservative assumptions.
+Cross-exchange price deviations in cryptocurrency markets have been widely documented, yet few studies build and evaluate systematic trading strategies that exploit them. We present a \emph{cross-exchange} stochastic spread-trading framework that models the price spread of identical assets across centralized exchanges as an Ornstein--Uhlenbeck (OU) process and generates trades when deviations exceed a calibrated threshold. Using 30 days of one-minute OHLCV data across 5~assets, 7~exchanges, and 50~exchange-pair--model combinations, we find that OU-based mean-reversion is highly profitable for assets whose cross-exchange spread standard deviation exceeds the round-trip transaction fee---specifically, WIF (93~bps spread std, Sharpe~2.46), PEPE (22~bps, Sharpe~2.38), and CRV (78~bps, Sharpe~1.50)---while assets with spread volatility below the fee threshold (DOGE at 11~bps, SOL at 7.5~bps) are uniformly unprofitable. We identify a structural \emph{price latency} on Crypto.com (38-minute lag for CRV) and MEXC (1.5-minute lag for WIF) as the primary microstructural driver of exploitable spreads. Our OU model consistently outperforms a rolling z-score baseline on both Sharpe ratio and win rate in the cross-exchange setting, contrasting with single-exchange findings in prior work. We contribute (i)~an empirically grounded profitability threshold ($\sigma_{\text{spread}} > c_{\text{fee}}$) for cross-exchange spread-trading viability, (ii)~a characterization of exchange-specific latency as a persistent microstructural inefficiency, and (iii)~an honest assessment of the gap between idealized backtests and realistic execution, estimating a 50--80\% reduction in net profits under conservative assumptions.
 \end{abstract}
 
 %%% CCS Concepts generated from https://dl.acm.org/ccs/ccs.cfm
@@ -61,7 +61,7 @@ Cross-exchange price deviations in cryptocurrency markets have been widely docum
 \ccsdesc[300]{Computing methodologies~Modeling and simulation}
 \ccsdesc[300]{Mathematics of computing~Stochastic processes}
 
-\keywords{statistical arbitrage, cryptocurrency, cross-exchange trading, Ornstein--Uhlenbeck process, mean reversion, market microstructure}
+\keywords{stochastic spread modeling, cryptocurrency, cross-exchange trading, Ornstein--Uhlenbeck process, mean reversion, market microstructure}
 
 \maketitle
 
@@ -72,13 +72,13 @@ Cross-exchange price deviations in cryptocurrency markets have been widely docum
 
 Cryptocurrency markets are fragmented across dozens of centralized exchanges (CEXs), each operating independent order books with heterogeneous liquidity, fee structures, and matching-engine latencies. Unlike equity markets, where consolidated order books and Regulation NMS enforce best-execution guarantees, crypto exchanges are isolated venues. This fragmentation creates persistent cross-exchange price deviations for \emph{identical} assets~\cite{makarov2020trading}.
 
-Classical statistical arbitrage (``stat-arb'') pairs trading identifies co-moving assets and trades the mean-reverting spread between them~\cite{krauss2017statistical}. In equity markets, this typically involves two \emph{different} but correlated stocks. In the cross-exchange crypto setting, we trade the spread of the \emph{same} asset across \emph{different} venues---a stronger form of cointegration grounded in the Law of One Price. Recent work at ICAIF has applied correlation matrix clustering to construct statistical arbitrage portfolios in equities~\cite{jin2023correlation}, but same-asset cross-exchange stat-arb in crypto markets remains unexplored.
+Classical statistical arbitrage (``stat-arb'') pairs trading identifies co-moving assets and trades the mean-reverting spread between them~\cite{krauss2017statistical}. In equity markets, this typically involves two \emph{different} but correlated stocks. In the cross-exchange crypto setting, we trade the spread of the \emph{same} asset across \emph{different} venues---a stronger form of cointegration grounded in the Law of One Price. Recent work at ICAIF has applied correlation matrix clustering to construct statistical arbitrage portfolios in equities~\cite{jin2023correlation}, but same-asset cross-exchange spread trading in crypto markets remains unexplored.
 
-Despite theoretical appeal, practical cross-exchange stat-arb faces three challenges: (i)~transaction fees that may exceed the spread, (ii)~execution latency that erodes signal value, and (iii)~capital fragmentation across venues. Prior work has documented cross-exchange arbitrage opportunities~\cite{makarov2020trading, gandal2021key} but largely stopped short of building and evaluating systematic trading strategies. Triangular arbitrage within a single exchange has been studied~\cite{fischler2024wish} and found unprofitable after costs, but cross-exchange mean-reversion strategies on volatile assets remain underexplored.
+Despite theoretical appeal, practical cross-exchange spread trading faces three challenges: (i)~transaction fees that may exceed the spread, (ii)~execution latency that erodes signal value, and (iii)~capital fragmentation across venues. Prior work has documented cross-exchange price dislocations~\cite{makarov2020trading, gandal2021key} but largely stopped short of building and evaluating systematic trading strategies. Triangular arbitrage within a single exchange has been studied~\cite{fischler2024wish} and found unprofitable after costs, but cross-exchange mean-reversion strategies on volatile assets remain underexplored.
 
 \subsection{Research Journey}
 
-This work began with an attempt to exploit stablecoin arbitrage---identifying circular routes across exchanges using graph-search algorithms (A* pathfinding). After collecting data for 7~stablecoins across 10~exchanges (120 exchange-pair snapshots), we discovered that stablecoin cross-exchange spreads are vanishingly small (0.7~bps standard deviation) against round-trip fees of 18~bps---a fee-to-spread ratio of $25.9\times$. This definitive negative result redirected our investigation toward \emph{volatile} assets, where cross-exchange spreads are structurally wider.
+This work began with an attempt to exploit stablecoin price discrepancies---identifying circular routes across exchanges using graph-search algorithms (A* pathfinding). After collecting data for 7~stablecoins across 10~exchanges (120 exchange-pair snapshots), we discovered that stablecoin cross-exchange spreads are vanishingly small (0.7~bps standard deviation) against round-trip fees of 18~bps---a fee-to-spread ratio of $25.9\times$. This definitive negative result redirected our investigation toward \emph{volatile} assets, where cross-exchange spreads are structurally wider.
 
 The pivot proved fruitful. We discovered that certain exchanges---notably Crypto.com and MEXC---exhibit persistent \emph{price latency}: their prices for specific assets lag other exchanges by minutes to tens of minutes. This latency creates predictable, mean-reverting spreads that the Ornstein--Uhlenbeck (OU) model captures naturally. The progression from stablecoin failure to latency discovery to OU-based exploitation forms the narrative arc of this paper.
 
@@ -86,12 +86,12 @@ The pivot proved fruitful. We discovered that certain exchanges---notably Crypto
 
 In this paper, we make the following contributions:
 \begin{enumerate}
-    \item We develop a cross-exchange stat-arb framework using the Ornstein--Uhlenbeck (OU) process to model the price spread between exchange pairs and generate entry/exit signals.
+    \item We develop a cross-exchange spread-trading framework using the Ornstein--Uhlenbeck (OU) process to model the price spread between exchange pairs and generate entry/exit signals.
     \item We conduct a comprehensive 30-day backtest across 5~assets, 7~exchanges, and 50~exchange-pair--model combinations, identifying a clear \textbf{profitability threshold}: spread standard deviation must exceed the round-trip fee ($\sigma_{\text{spread}} > c_{\text{fee}} \approx 15$~bps).
     \item We characterize \textbf{exchange-specific price latency}---Crypto.com lagging by up to 38~minutes for CRV and MEXC lagging by 1.5~minutes for WIF---as a persistent, exploitable microstructural feature, extending the lead-lag detection literature~\cite{zhang2023dtw, shi2023multireference} to the cross-exchange setting.
     \item We compare OU-based signals against a rolling z-score baseline and additional baselines (buy-and-hold, random entry), finding that OU outperforms in the cross-exchange setting despite recent single-exchange findings to the contrary~\cite{suchato2024application}.
     \item We provide a transparent assessment of backtesting limitations, ablation studies over key hyperparameters, and estimate realistic profit degradation under execution frictions.
-    \item We report definitive negative results: stablecoin arbitrage is unviable (fee-to-spread ratio of $25.9\times$) and high-cap assets (DOGE, SOL) exhibit zero cross-exchange stat-arb opportunity.
+    \item We report definitive negative results: stablecoin spread trading is unviable (fee-to-spread ratio of $25.9\times$) and high-cap assets (DOGE, SOL) exhibit zero cross-exchange trading opportunity.
 \end{enumerate}
 
 % ======================================================================
@@ -111,9 +111,9 @@ Fil and Kristoufek~\cite{fil2020pairs} apply distance and cointegration methods 
 
 Suchato et al.~\cite{suchato2024application} compare OU-based and naive rolling z-score strategies, finding that OU underperforms on a risk-return basis due to non-stationarity and parameter sensitivity. We observe the opposite in our cross-exchange setting and attribute the discrepancy to the stronger mean-reversion guarantee: the Law of One Price ensures that cross-exchange spreads for the same asset must converge, unlike spreads between different assets.
 
-\subsection{Cross-Exchange Arbitrage}
+\subsection{Cross-Exchange Price Dislocations}
 
-Makarov and Schoar~\cite{makarov2020trading} document large, recurrent arbitrage opportunities across crypto exchanges, with deviations larger across countries than within them, and identify capital controls as the primary barrier. Gandal and Halaburda~\cite{gandal2021key} examine how exchange structure generates persistent arbitrage. Fischler et al.~\cite{fischler2024wish} study triangular arbitrage on Binance and conclude it is eliminated by transaction costs. Our work extends Makarov and Schoar's observational findings into a \emph{systematic trading strategy} with quantitative evaluation.
+Makarov and Schoar~\cite{makarov2020trading} document large, recurrent price dislocations across crypto exchanges, with deviations larger across countries than within them, and identify capital controls as the primary barrier. Gandal and Halaburda~\cite{gandal2021key} examine how exchange structure generates persistent price discrepancies. Fischler et al.~\cite{fischler2024wish} study triangular arbitrage on Binance and conclude it is eliminated by transaction costs. Our work extends Makarov and Schoar's observational findings into a \emph{systematic trading strategy} with quantitative evaluation.
 
 \subsection{Lead-Lag Detection in Financial Markets}
 
@@ -121,7 +121,7 @@ The identification of lead-lag relationships is an active area in computational 
 
 \subsection{ML and RL Extensions}
 
-Ning and Lee~\cite{ning2024advanced} propose model-free RL for stat-arb that minimizes empirical mean-reversion time. Carapeto et al.~\cite{carapeto2024deep} combine classical stat-arb with deep RL across 14~crypto assets. These approaches are complementary to our OU framework and represent potential extensions for dynamic threshold optimization.
+Ning and Lee~\cite{ning2024advanced} propose model-free RL for spread trading that minimizes empirical mean-reversion time. Carapeto et al.~\cite{carapeto2024deep} combine classical mean-reversion strategies with deep RL across 14~crypto assets. These approaches are complementary to our OU framework and represent potential extensions for dynamic threshold optimization.
 
 % ======================================================================
 %  3. METHODOLOGY
@@ -188,7 +188,7 @@ We selected five assets spanning a range of market capitalization and liquidity:
     \item \textbf{High spread volatility:} WIF (dogwifhat), CRV (Curve DAO), PEPE (Pepe)
     \item \textbf{Low spread volatility:} DOGE (Dogecoin), SOL (Solana)
 \end{itemize}
-Additionally, we tested 7~stablecoins (USDT, USDC, DAI, BUSD, TUSD, USDP, FDUSD) as a baseline to confirm the unprofitability of stablecoin arbitrage under realistic fee structures.
+Additionally, we tested 7~stablecoins (USDT, USDC, DAI, BUSD, TUSD, USDP, FDUSD) as a baseline to confirm the unprofitability of stablecoin spread trading under realistic fee structures.
 
 \subsection{Exchange Coverage}
 
@@ -250,7 +250,7 @@ SOL  & 7.5  & 0/10  & $-44{,}849$ & $-3.02$ & --- \\
 \end{tabular}
 \end{table}
 
-The results reveal a sharp binary outcome: assets with $\sigma_{\text{spread}} > 15$~bps (the approximate round-trip fee) are \emph{all} profitable across every pair-model tested, while assets below this threshold are \emph{uniformly} unprofitable. This suggests a simple, interpretable screening criterion for cross-exchange stat-arb viability.
+The results reveal a sharp binary outcome: assets with $\sigma_{\text{spread}} > 15$~bps (the approximate round-trip fee) are \emph{all} profitable across every pair-model tested, while assets below this threshold are \emph{uniformly} unprofitable. This suggests a simple, interpretable screening criterion for cross-exchange spread-trading viability.
 
 \begin{figure}[h]
 \centering
@@ -314,9 +314,9 @@ We attribute this discrepancy to the structural difference in mean-reversion gua
 
 \subsection{Stablecoin Baseline}
 
-As a negative control, we tested the framework on 7~stablecoins across 10~exchanges (120 snapshots). Zero profitable trades were found. The spread standard deviation was 0.7~bps against a typical round-trip fee of 18~bps---a fee-to-spread ratio of 25.9$\times$. This confirms that stablecoin arbitrage is not viable under realistic fee structures, consistent with the efficiency implied by their peg mechanisms.
+As a negative control, we tested the framework on 7~stablecoins across 10~exchanges (120 snapshots). Zero profitable trades were found. The spread standard deviation was 0.7~bps against a typical round-trip fee of 18~bps---a fee-to-spread ratio of 25.9$\times$. This confirms that stablecoin spread trading is not viable under realistic fee structures, consistent with the efficiency implied by their peg mechanisms.
 
-This negative result is itself a contribution: while prior work has speculated about stablecoin arbitrage opportunities~\cite{makarov2020trading}, we provide the first systematic empirical quantification showing that the fee-to-spread ratio makes such strategies categorically impossible. The result motivated our pivot to volatile assets, where spreads are structurally wider.
+This negative result is itself a contribution: while prior work has speculated about stablecoin price discrepancies~\cite{makarov2020trading}, we provide the first systematic empirical quantification showing that the fee-to-spread ratio makes such strategies categorically impossible. The result motivated our pivot to volatile assets, where spreads are structurally wider.
 
 \subsection{Detailed Asset Results}
 
@@ -334,15 +334,15 @@ CRV showed the longest OU half-life (38~minutes), driven entirely by Crypto.com'
 
 \subsubsection{DOGE and SOL (Negative Results)}
 
-DOGE (11~bps spread std) and SOL (7.5~bps) produced zero profitable pair-models. Both assets are highly liquid across all exchanges, with deep order books and active market makers that enforce tight cross-exchange pricing. The strategy generated frequent trades but nearly all incurred losses exceeding the spread, confirming that market efficiency in high-cap assets eliminates the cross-exchange stat-arb opportunity.
+DOGE (11~bps spread std) and SOL (7.5~bps) produced zero profitable pair-models. Both assets are highly liquid across all exchanges, with deep order books and active market makers that enforce tight cross-exchange pricing. The strategy generated frequent trades but nearly all incurred losses exceeding the spread, confirming that market efficiency in high-cap assets eliminates the cross-exchange spread-trading opportunity.
 
 The failure is structural, not methodological. These assets have:\vspace{-0.5em}
 \begin{itemize}
     \item \textbf{Deep liquidity:} Tight bid-ask spreads compress cross-exchange deviations below the fee floor.
-    \item \textbf{Active arbitrageurs:} Well-capitalized market makers already exploit any transient dislocations within seconds.
+    \item \textbf{Active market makers:} Well-capitalized participants already exploit any transient dislocations within seconds.
     \item \textbf{Uniform exchange coverage:} Unlike CRV or WIF, no single exchange exhibits price latency for DOGE or SOL---all venues track the same price nearly simultaneously.
 \end{itemize}\vspace{-0.5em}
-This negative result provides a useful screening criterion: assets with high market-cap rank and deep multi-venue liquidity are poor candidates for cross-exchange stat-arb. The strategy is inherently an edge that exists in the \emph{long tail} of lower-liquidity assets where market-making coverage is uneven across venues.
+This negative result provides a useful screening criterion: assets with high market-cap rank and deep multi-venue liquidity are poor candidates for cross-exchange spread trading. The strategy is inherently an edge that exists in the \emph{long tail} of lower-liquidity assets where market-making coverage is uneven across venues.
 
 % ======================================================================
 %  5b. ABLATION AND ROBUSTNESS
@@ -436,7 +436,7 @@ Both naive baselines are significantly unprofitable, confirming that the OU stra
 
 \subsection{Profitability Threshold}
 
-Our results suggest a simple screening criterion: an asset is viable for cross-exchange stat-arb if and only if its cross-exchange spread standard deviation exceeds the round-trip transaction fee. In our data, this threshold is approximately 15~bps. This criterion is intuitive---the spread must be large enough to cover trading costs---but its \emph{sharpness} is notable: there is no ``gray zone'' in our sample. All assets above threshold are 100\% profitable (at the pair-model level); all below are 0\% profitable.
+Our results suggest a simple screening criterion: an asset is viable for cross-exchange spread trading if and only if its cross-exchange spread standard deviation exceeds the round-trip transaction fee. In our data, this threshold is approximately 15~bps. This criterion is intuitive---the spread must be large enough to cover trading costs---but its \emph{sharpness} is notable: there is no ``gray zone'' in our sample. All assets above threshold are 100\% profitable (at the pair-model level); all below are 0\% profitable.
 
 \subsection{Why OU Outperforms Z-Score Here}
 
@@ -511,13 +511,13 @@ Several risks threaten the persistence of this edge:
 % ======================================================================
 \section{Conclusion}\label{sec:conclusion}
 
-We presented a cross-exchange statistical arbitrage framework for cryptocurrency markets that exploits venue-specific price latency using Ornstein--Uhlenbeck mean-reversion modeling. Beginning with a failed stablecoin arbitrage attempt that revealed a $25.9\times$ fee-to-spread ratio, we pivoted to volatile assets and discovered a rich vein of exploitable microstructure. Our 30-day empirical study across 5~assets and 7~exchanges reveals:
+We presented a cross-exchange stochastic spread-trading framework for cryptocurrency markets that exploits venue-specific price latency using Ornstein--Uhlenbeck mean-reversion modeling. Beginning with a failed stablecoin trading attempt that revealed a $25.9\times$ fee-to-spread ratio, we pivoted to volatile assets and discovered a rich vein of exploitable microstructure. Our 30-day empirical study across 5~assets and 7~exchanges reveals:
 
 \begin{enumerate}
     \item A sharp profitability threshold at $\sigma_{\text{spread}} \approx 15$~bps, above which \emph{all} pair-models are profitable and below which \emph{none} are.
     \item Systematic price latency on Crypto.com (up to 38~minutes for CRV) and MEXC (1.5~minutes for WIF) as the microstructural driver of exploitable spreads.
     \item OU model superiority over rolling z-score in the cross-exchange setting (Sharpe 2.46 vs.\ 2.21 for WIF; 1.50 vs.\ 0.28 for CRV), attributed to the structural mean-reversion guarantee of same-asset cross-exchange spreads.
-    \item Stablecoin arbitrage is definitively unviable (fee-to-spread ratio of 25.9$\times$), while high-cap assets (DOGE, SOL) are uniformly unprofitable due to efficient multi-venue market making.
+    \item Stablecoin spread trading is definitively unviable (fee-to-spread ratio of 25.9$\times$), while high-cap assets (DOGE, SOL) are uniformly unprofitable due to efficient multi-venue market making.
 \end{enumerate}
 
 Our ablation studies confirm the robustness of these findings across entry thresholds and temporal subperiods, while our realistic degradation analysis estimates a 50--80\% reduction in net profits under conservative execution assumptions---emphasizing the importance of live validation.
