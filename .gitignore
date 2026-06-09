@@ -30,3 +30,10 @@ paper/*.fdb_latexmk
 paper/*.synctex.gz
 paper/acmart.cls
 paper/ACM-Reference-Format.bst
+
+# C++ build artifacts
+*.pyd
+*.so
+*.dll
+build/
+*.egg-info/
