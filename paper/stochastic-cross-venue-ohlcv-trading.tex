@@ -258,8 +258,7 @@ The results reveal a sharp binary outcome: assets with $\sigma_{\text{spread}} >
 
 \begin{figure}[h]
 \centering
-\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textcolor{gray}{[Spread std vs.\ net P\&L scatter plot.\\Each point = one exchange-pair--model.\\Vertical dashed line at 15~bps threshold.\\Green points = profitable; red = unprofitable.]}
-\vspace{2cm}}}
+\includegraphics[width=\columnwidth]{figures/threshold_scatter.pdf}
 \caption{Profitability threshold: cross-exchange spread standard deviation vs.\ net P\&L for all 50 pair-model combinations. A sharp boundary at $\sigma_{\text{spread}} \approx 15$~bps separates uniformly profitable from uniformly unprofitable strategies.}
 \label{fig:threshold}
 \end{figure}
@@ -286,9 +285,8 @@ Crypto.com exhibits a remarkably long 38-minute price lag for CRV, suggesting ei
 
 \begin{figure}[h]
 \centering
-\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textcolor{gray}{[Time series plot: CRV price on Binance vs.\ Crypto.com.\\Shaded regions show entry/exit windows.\\Visible 38-minute lag on Crypto.com.]}
-\vspace{2cm}}}
-\caption{Cross-exchange spread time series for CRV (Binance vs.\ Crypto.com). The Crypto.com price (dashed) visibly lags the Binance price (solid) by approximately 38~minutes, creating predictable mean-reverting deviations exploited by the OU model.}
+\includegraphics[width=\columnwidth]{figures/spread_timeseries.pdf}
+\caption{Cross-exchange spread time series for CRV (Binance vs.\ Crypto.com). The Crypto.com price (dashed) visibly lags the Binance price (solid), creating predictable mean-reverting deviations exploited by the OU model. Bottom panel shows the spread in basis points.}
 \label{fig:spread_ts}
 \end{figure}
 
@@ -427,8 +425,7 @@ Both naive baselines are significantly unprofitable, confirming that the OU stra
 
 \begin{figure}[h]
 \centering
-\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textcolor{gray}{[Cumulative PnL curves over 30 days.\\Lines: OU (blue), Z-Score (orange),\\Buy-and-Hold (gray dashed), Random (red dashed).\\OU and Z-Score climb steadily; baselines decline.]}
-\vspace{2cm}}}
+\includegraphics[width=\columnwidth]{figures/cumulative_pnl.pdf}
 \caption{Cumulative P\&L for WIF Binance--MEXC under four strategies. The OU and z-score strategies show consistent upward trajectories, while buy-and-hold and random entry decline steadily due to directional exposure and fee erosion, respectively.}
 \label{fig:cumulative_pnl}
 \end{figure}
@@ -461,8 +458,7 @@ This latency is \emph{asset-specific}: Crypto.com is slow for CRV and PEPE but n
 
 \begin{figure}[h]
 \centering
-\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textcolor{gray}{[Heatmap: rows = assets (WIF, PEPE, CRV, DOGE, SOL),\\columns = exchange pairs.\\Cell color = OU half-life (minutes).\\Crypto.com and MEXC pairs show longest half-lives.]}
-\vspace{2cm}}}
+\includegraphics[width=\columnwidth]{figures/halflife_heatmap.pdf}
 \caption{OU half-life heatmap across assets and exchange pairs. Darker cells indicate longer mean-reversion times, corresponding to exploitable price latency. Crypto.com pairs dominate for CRV (38~min) and PEPE (2~min); MEXC dominates for WIF (1.5~min). High-cap assets (DOGE, SOL) show uniformly short half-lives across all pairs.}
 \label{fig:halflife_heatmap}
 \end{figure}
