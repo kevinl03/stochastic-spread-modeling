@@ -187,12 +187,9 @@ We collected 30~days of one-minute OHLCV (Open-High-Low-Close-Volume) candlestic
 
 \subsection{Asset Selection}
 
-We selected five assets spanning a range of market capitalization and liquidity:
-\begin{itemize}
-    \item \textbf{High spread volatility:} WIF (dogwifhat), CRV (Curve DAO), PEPE (Pepe)
-    \item \textbf{Low spread volatility:} DOGE (Dogecoin), SOL (Solana)
-\end{itemize}
-Additionally, we tested 7~stablecoins (USDT, USDC, DAI, BUSD, TUSD, USDP, FDUSD) as a baseline to confirm the unprofitability of stablecoin spread trading under realistic fee structures.
+To identify candidate assets, we screened all spot markets available on at least 5 of our 11 target exchanges and ranked them by cross-exchange spread standard deviation computed from a 48-hour pilot collection of 1-minute OHLCV data. We selected the top~3 assets by spread volatility---WIF (dogwifhat, $\sigma_{\text{spread}}=93$~bps), CRV (Curve DAO, 77~bps), and PEPE (Pepe, 25~bps)---as high-opportunity candidates, and two high-cap assets with low spread volatility---DOGE (Dogecoin, 8~bps) and SOL (Solana, 7~bps)---as negative-result controls. This deliberate inclusion of assets expected to be unprofitable strengthens the identification of the 15~bps profitability threshold (Section~\ref{sec:results}).
+
+Additionally, we tested 7~stablecoins (USDT, USDC, DAI, BUSD, TUSD, USDP, FDUSD) as a further baseline to confirm the unprofitability of stablecoin spread trading under realistic fee structures (fee-to-spread ratio of $25.9\times$).
 
 \subsection{Exchange Coverage}
 
