@@ -10,7 +10,7 @@
 
 %%% ----- ACM metadata -----
 \setcopyright{none}
-\acmConference[ICAIF '26]{5th ACM International Conference on AI in Finance}{November 2026}{Brooklyn, NY, USA}
+\acmConference[ICAIF '26]{7th ACM International Conference on AI in Finance}{November 2026}{Brooklyn, NY, USA}
 
 \begin{document}
 
@@ -34,11 +34,30 @@
 Cross-exchange price deviations in cryptocurrency markets have been widely documented, yet few studies build and evaluate systematic trading strategies that exploit them. We present a \emph{cross-exchange} statistical arbitrage framework that models the price spread of identical assets across centralized exchanges as an Ornstein--Uhlenbeck (OU) process and generates trades when deviations exceed a calibrated threshold. Using 30 days of one-minute OHLCV data across 5~assets, 7~exchanges, and 50~exchange-pair--model combinations, we find that OU-based mean-reversion is highly profitable for assets whose cross-exchange spread standard deviation exceeds the round-trip transaction fee---specifically, WIF (93~bps spread std, Sharpe~2.46), PEPE (22~bps, Sharpe~2.38), and CRV (78~bps, Sharpe~1.50)---while assets with spread volatility below the fee threshold (DOGE at 11~bps, SOL at 7.5~bps) are uniformly unprofitable. We identify a structural \emph{price latency} on Crypto.com (38-minute lag for CRV) and MEXC (1.5-minute lag for WIF) as the primary microstructural driver of exploitable spreads. Our OU model consistently outperforms a rolling z-score baseline on both Sharpe ratio and win rate in the cross-exchange setting, contrasting with single-exchange findings in prior work. We contribute (i)~an empirically grounded profitability threshold ($\sigma_{\text{spread}} > c_{\text{fee}}$) for cross-exchange stat-arb viability, (ii)~a characterization of exchange-specific latency as a persistent microstructural inefficiency, and (iii)~an honest assessment of the gap between idealized backtests and realistic execution, estimating a 50--80\% reduction in net profits under conservative assumptions.
 \end{abstract}
 
-\begin{CCSCCS}
+%%% CCS Concepts generated from https://dl.acm.org/ccs/ccs.cfm
+\begin{CCSXML}
+<ccs2012>
+  <concept>
+    <concept_id>10003120.10003130</concept_id>
+    <concept_desc>Human-centered computing~Collaborative and social computing</concept_desc>
+    <concept_significance>100</concept_significance>
+  </concept>
+  <concept>
+    <concept_id>10002950.10003624</concept_id>
+    <concept_desc>Mathematics of computing~Stochastic processes</concept_desc>
+    <concept_significance>300</concept_significance>
+  </concept>
+  <concept>
+    <concept_id>10002951.10003317</concept_id>
+    <concept_desc>Information systems~Data mining</concept_desc>
+    <concept_significance>300</concept_significance>
+  </concept>
+</ccs2012>
+\end{CCSXML}
+
 \ccsdesc[500]{Applied computing~Electronic commerce}
 \ccsdesc[300]{Computing methodologies~Modeling and simulation}
 \ccsdesc[300]{Mathematics of computing~Stochastic processes}
-\end{CCSCCS}
 
 \keywords{statistical arbitrage, cryptocurrency, cross-exchange trading, Ornstein--Uhlenbeck process, mean reversion, market microstructure}
 
