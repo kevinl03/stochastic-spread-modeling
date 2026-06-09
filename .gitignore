@@ -17,3 +17,16 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# LaTeX build artifacts & downloaded class files
+paper/*.pdf
+paper/*.aux
+paper/*.log
+paper/*.bbl
+paper/*.blg
+paper/*.out
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.synctex.gz
+paper/acmart.cls
+paper/ACM-Reference-Format.bst
