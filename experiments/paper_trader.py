@@ -62,8 +62,11 @@ class Config:
     ou_window: int = 60              # seconds for OU param estimation
     zscore_window: int = 60           # ticks for rolling z-score (was 30)
     # Execution
-    slippage_bps: float = 2.0         # additional slippage per side
+    slippage_bps: float = 2.0         # fallback slippage per side (used when L2 unavailable)
+    max_slippage_bps: float = 10.0    # skip trade if measured slippage exceeds this per side
     capital_usd: float = 1000.0       # notional per trade
+    use_l2: bool = True               # collect L2 order book data
+    book_depth: int = 10              # number of levels to collect
     max_position: int = 1             # max concurrent positions
     # Logging
     output_dir: str = "data/paper_trading"
@@ -76,12 +79,61 @@ class Config:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class BookLevel:
+    price: float
+    size: float
+
+@dataclass
+class BookSnapshot:
+    bids: list  # List[BookLevel], best first
+    asks: list  # List[BookLevel], best first
+
+
+def compute_slippage_bps(book_side: list, order_size_usd: float) -> float:
+    """Walk order book levels to compute slippage in bps.
+
+    Args:
+        book_side: list of BookLevel (bids for sells, asks for buys), best first
+        order_size_usd: notional order size in USD
+
+    Returns:
+        Slippage in bps relative to best price. Returns NaN if book is
+        too thin to fill the order.
+    """
+    if not book_side or order_size_usd <= 0:
+        return float('nan')
+
+    best_price = book_side[0].price
+    if best_price <= 0:
+        return float('nan')
+
+    filled_usd = 0.0
+    weighted_cost = 0.0
+
+    for level in book_side:
+        available_usd = level.price * level.size
+        take_usd = min(order_size_usd - filled_usd, available_usd)
+        weighted_cost += take_usd * level.price
+        filled_usd += take_usd
+        if filled_usd >= order_size_usd:
+            break
+
+    if filled_usd < order_size_usd * 0.95:  # can't fill 95%+
+        return float('nan')
+
+    avg_fill_price = weighted_cost / filled_usd
+    slippage = abs(avg_fill_price - best_price) / best_price * 10_000
+    return slippage
+
+
+@dataclass
 class Tick:
     ts: float           # unix timestamp
     exchange: str
     bid: float
     ask: float
     mid: float
+    book: BookSnapshot | None = None  # L2 data when available
 
 
 @dataclass
@@ -95,6 +147,8 @@ class Position:
     entry_ask_a: float
     entry_bid_b: float
     entry_ask_b: float
+    entry_slippage_a: float = 0.0  # measured slippage in bps
+    entry_slippage_b: float = 0.0
 
 
 @dataclass
@@ -329,17 +383,22 @@ class PaperTrader:
         print(f"  {config.exchange_a} (fast) vs {config.exchange_b} (slow)")
         print(f"  Strategy: {config.strategy.upper()}")
         print(f"  Entry z: {config.entry_z}, Exit z: {config.exit_z}")
-        print(f"  Fee: {self.fee_bps:.1f} bps, Slippage: {self.slippage_bps:.1f} bps")
+        print(f"  Fee: {self.fee_bps:.1f} bps, Slippage: {self.slippage_bps:.1f} bps (fallback)")
         self.vol_threshold = config.vol_filter_mult * self.total_cost_bps
         self.last_trade_tick = -config.cooldown_ticks - 1
 
         print(f"  Total cost per round-trip: {self.total_cost_bps:.1f} bps")
+        print(f"  L2 order book: {'enabled' if config.use_l2 else 'disabled'} (depth={config.book_depth})")
+        print(f"  Max slippage gate: {config.max_slippage_bps:.1f} bps per side")
         print(f"  Vol filter: spread_std > {config.vol_filter_mult}x cost = {self.vol_threshold:.1f} bps")
         print(f"  Cooldown: {config.cooldown_ticks} ticks between trades")
         print(f"  Capital: ${config.capital_usd:.0f} per trade")
         print(f"  Max hold: {config.max_holding_sec}s")
         print(f"  Output: {self.output_dir}")
         print(f"{'='*60}\n")
+
+        # Slippage tracking
+        self._slippage_samples: list = []  # (exchange, slippage_bps) for post-campaign analysis
 
     def on_tick(self, tick: Tick):
         """Process a new tick from either exchange."""
@@ -352,14 +411,18 @@ class PaperTrader:
         self.state.tick_count += 1
         self.state.last_tick_time = time.time()
 
-        # Log tick
-        self.tick_log.write(json.dumps({
+        # Log tick (include book snapshot if available)
+        tick_data = {
             "ts": datetime.fromtimestamp(tick.ts, tz=timezone.utc).isoformat(),
             "exchange": tick.exchange,
             "bid": tick.bid,
             "ask": tick.ask,
             "mid": tick.mid,
-        }) + "\n")
+        }
+        if tick.book is not None:
+            tick_data["book_bids"] = [[l.price, l.size] for l in tick.book.bids[:5]]
+            tick_data["book_asks"] = [[l.price, l.size] for l in tick.book.asks[:5]]
+        self.tick_log.write(json.dumps(tick_data) + "\n")
         self.tick_log.flush()
 
         # Only compute spread when we have both sides
@@ -447,9 +510,45 @@ class PaperTrader:
             if exit_reason:
                 self._close_position(current_spread, exit_reason)
 
+    def _measure_slippage(self) -> tuple:
+        """Measure slippage from L2 book data on both exchanges.
+        Returns (slippage_a_bps, slippage_b_bps). Uses fallback if no book."""
+        capital = self.config.capital_usd
+        slip_a = self.config.slippage_bps  # fallback
+        slip_b = self.config.slippage_bps
+
+        if self.last_tick_a and self.last_tick_a.book:
+            # For short_spread: sell A (walk bids), buy B (walk asks)
+            # For long_spread: buy A (walk asks), sell B (walk bids)
+            # At entry time we don't know direction yet, so measure both sides
+            ask_slip = compute_slippage_bps(self.last_tick_a.book.asks, capital)
+            bid_slip = compute_slippage_bps(self.last_tick_a.book.bids, capital)
+            if not np.isnan(ask_slip) and not np.isnan(bid_slip):
+                slip_a = max(ask_slip, bid_slip)  # conservative: use worse side
+                self._slippage_samples.append((self.config.exchange_a, slip_a))
+
+        if self.last_tick_b and self.last_tick_b.book:
+            ask_slip = compute_slippage_bps(self.last_tick_b.book.asks, capital)
+            bid_slip = compute_slippage_bps(self.last_tick_b.book.bids, capital)
+            if not np.isnan(ask_slip) and not np.isnan(bid_slip):
+                slip_b = max(ask_slip, bid_slip)
+                self._slippage_samples.append((self.config.exchange_b, slip_b))
+
+        return slip_a, slip_b
+
     def _open_position(self, direction: str, spread_bps: float):
         """Open a paper position."""
         if self.last_tick_a is None or self.last_tick_b is None:
+            return
+
+        # Measure slippage from L2 order book
+        slip_a, slip_b = self._measure_slippage()
+
+        # Liquidity gate: skip if slippage too high
+        if slip_a > self.config.max_slippage_bps or slip_b > self.config.max_slippage_bps:
+            ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+            print(f"  [{ts}] SKIP {direction} | slippage too high: "
+                  f"A={slip_a:.1f} B={slip_b:.1f} bps (max={self.config.max_slippage_bps:.1f})")
             return
 
         self.state.position = Position(
@@ -462,11 +561,14 @@ class PaperTrader:
             entry_ask_a=self.last_tick_a.ask,
             entry_bid_b=self.last_tick_b.bid,
             entry_ask_b=self.last_tick_b.ask,
+            entry_slippage_a=slip_a,
+            entry_slippage_b=slip_b,
         )
 
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         print(f"  [{ts}] OPEN {direction} | spread={spread_bps:+.1f} bps | "
-              f"A={self.last_tick_a.mid:.6f} B={self.last_tick_b.mid:.6f}")
+              f"A={self.last_tick_a.mid:.6f} B={self.last_tick_b.mid:.6f} | "
+              f"slippage: A={slip_a:.1f} B={slip_b:.1f} bps")
 
     def _close_position(self, exit_spread_bps: float, reason: str):
         """Close paper position and record trade."""
@@ -477,15 +579,18 @@ class PaperTrader:
         now = time.time()
         holding_sec = now - pos.entry_time
 
-        # PnL calculation
+        # PnL calculation — use measured slippage from entry + exit
         if pos.direction == "short_spread":
-            # Entered when spread was high, exit when low → profit = entry - exit
             gross_pnl = pos.entry_spread - exit_spread_bps
         else:
-            # Entered when spread was low, exit when high → profit = exit - entry
             gross_pnl = exit_spread_bps - pos.entry_spread
 
-        net_pnl = gross_pnl - self.fee_bps - self.slippage_bps
+        # Measure exit slippage from current book
+        exit_slip_a, exit_slip_b = self._measure_slippage()
+        # Total slippage = entry slippage + exit slippage (both sides)
+        total_slippage = (pos.entry_slippage_a + pos.entry_slippage_b
+                          + exit_slip_a + exit_slip_b)
+        net_pnl = gross_pnl - self.fee_bps - total_slippage
 
         trade = Trade(
             entry_time=datetime.fromtimestamp(pos.entry_time, tz=timezone.utc).isoformat(),
@@ -495,7 +600,7 @@ class PaperTrader:
             exit_spread_bps=round(exit_spread_bps, 2),
             gross_pnl_bps=round(gross_pnl, 2),
             fee_bps=round(self.fee_bps, 2),
-            slippage_bps=round(self.slippage_bps, 2),
+            slippage_bps=round(total_slippage, 2),
             net_pnl_bps=round(net_pnl, 2),
             holding_sec=round(holding_sec, 1),
             exit_reason=reason,
@@ -513,7 +618,7 @@ class PaperTrader:
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         win = "WIN" if net_pnl > 0 else "LOSS"
         print(f"  [{ts}] CLOSE {pos.direction} | {win} net={net_pnl:+.1f} bps | "
-              f"gross={gross_pnl:+.1f} cost={self.total_cost_bps:.1f} | "
+              f"gross={gross_pnl:+.1f} fee={self.fee_bps:.1f} slip={total_slippage:.1f} | "
               f"hold={holding_sec:.0f}s | reason={reason} | "
               f"cumulative={self.state.total_net_pnl_bps:+.1f} bps")
 
@@ -570,10 +675,26 @@ class PaperTrader:
             "total_net_pnl_bps": round(self.state.total_net_pnl_bps, 2),
             "avg_pnl_per_trade_bps": round(self.state.total_net_pnl_bps / n_trades, 2) if n_trades > 0 else 0,
             "fee_bps_per_trade": self.fee_bps,
-            "slippage_bps_per_trade": self.slippage_bps,
+            "slippage_bps_fallback": self.slippage_bps,
             "reconnections_a": self.state.reconnect_count_a,
             "reconnections_b": self.state.reconnect_count_b,
         }
+
+        # Add measured slippage stats if L2 data was collected
+        if self._slippage_samples:
+            by_exchange = {}
+            for ex, slip in self._slippage_samples:
+                by_exchange.setdefault(ex, []).append(slip)
+            slip_stats = {}
+            for ex, slips in by_exchange.items():
+                arr = np.array(slips)
+                slip_stats[ex] = {
+                    "median_bps": round(float(np.median(arr)), 2),
+                    "p95_bps": round(float(np.percentile(arr, 95)), 2),
+                    "max_bps": round(float(arr.max()), 2),
+                    "samples": len(arr),
+                }
+            summary["measured_slippage"] = slip_stats
 
         # Add latency stats if available
         if self.state.latency_samples:
@@ -616,8 +737,10 @@ class PaperTrader:
 # ---------------------------------------------------------------------------
 
 async def run_feed_ws(exchange_id: str, market: str, tick_queue: asyncio.Queue,
-                      reconnect_counter: list = None):
+                      reconnect_counter: list = None, use_l2: bool = True,
+                      book_depth: int = 10):
     """Connect to exchange WebSocket and push ticks to queue.
+    Uses watch_order_book for L2 data, falls back to watch_ticker.
     Automatically reconnects with exponential backoff on failure."""
     backoff = 1.0
     max_backoff = 60.0
@@ -630,10 +753,23 @@ async def run_feed_ws(exchange_id: str, market: str, tick_queue: asyncio.Queue,
             backoff = 1.0  # reset on successful connection
 
             while True:
-                ticker = await exchange.watch_ticker(market)
-                bid = ticker.get("bid") or ticker.get("last", 0)
-                ask = ticker.get("ask") or ticker.get("last", 0)
-                mid = (bid + ask) / 2 if (bid and ask) else ticker.get("last", 0)
+                book = None
+                if use_l2:
+                    ob = await exchange.watch_order_book(market, book_depth)
+                    raw_bids = ob.get("bids", [])[:book_depth]
+                    raw_asks = ob.get("asks", [])[:book_depth]
+                    bid = raw_bids[0][0] if raw_bids else 0
+                    ask = raw_asks[0][0] if raw_asks else 0
+                    mid = (bid + ask) / 2 if (bid and ask) else 0
+                    book = BookSnapshot(
+                        bids=[BookLevel(p, s) for p, s in raw_bids],
+                        asks=[BookLevel(p, s) for p, s in raw_asks],
+                    )
+                else:
+                    ticker = await exchange.watch_ticker(market)
+                    bid = ticker.get("bid") or ticker.get("last", 0)
+                    ask = ticker.get("ask") or ticker.get("last", 0)
+                    mid = (bid + ask) / 2 if (bid and ask) else ticker.get("last", 0)
 
                 if mid > 0:
                     tick = Tick(
@@ -642,6 +778,7 @@ async def run_feed_ws(exchange_id: str, market: str, tick_queue: asyncio.Queue,
                         bid=bid,
                         ask=ask,
                         mid=mid,
+                        book=book,
                     )
                     await tick_queue.put(tick)
 
@@ -725,17 +862,22 @@ async def run_feed_rest(exchange_id: str, market: str, tick_queue: asyncio.Queue
 
 async def run_feed(exchange_id: str, market: str, tick_queue: asyncio.Queue,
                    use_ws: bool = True, poll_interval: float = 1.0,
-                   reconnect_counter: list = None):
+                   reconnect_counter: list = None, use_l2: bool = True,
+                   book_depth: int = 10):
     """Try WebSocket first, fall back to REST polling. Both auto-reconnect."""
     if use_ws:
         try:
-            # Try one WebSocket tick to see if it works
+            # Try one WebSocket connection to see if it works
             exchange_class = getattr(ccxtpro, exchange_id)
             exchange = exchange_class({"timeout": 10000})
-            ticker = await asyncio.wait_for(exchange.watch_ticker(market), timeout=10)
+            if use_l2:
+                await asyncio.wait_for(exchange.watch_order_book(market, book_depth), timeout=10)
+            else:
+                await asyncio.wait_for(exchange.watch_ticker(market), timeout=10)
             await exchange.close()
-            print(f"  [{exchange_id}] WebSocket connected OK")
-            await run_feed_ws(exchange_id, market, tick_queue, reconnect_counter)
+            print(f"  [{exchange_id}] WebSocket connected OK (L2={'yes' if use_l2 else 'no'})")
+            await run_feed_ws(exchange_id, market, tick_queue, reconnect_counter,
+                              use_l2=use_l2, book_depth=book_depth)
             return
         except Exception as e:
             print(f"  [{exchange_id}] WebSocket failed ({e}), falling back to REST polling")
@@ -770,11 +912,15 @@ async def run_paper_trader(config: Config):
     feed_a = asyncio.create_task(run_feed(config.exchange_a, market_a, tick_queue,
                                           use_ws=config.use_websocket,
                                           poll_interval=config.poll_interval_ms / 1000,
-                                          reconnect_counter=reconnect_a))
+                                          reconnect_counter=reconnect_a,
+                                          use_l2=config.use_l2,
+                                          book_depth=config.book_depth))
     feed_b = asyncio.create_task(run_feed(config.exchange_b, market_b, tick_queue,
                                           use_ws=config.use_websocket,
                                           poll_interval=config.poll_interval_ms / 1000,
-                                          reconnect_counter=reconnect_b))
+                                          reconnect_counter=reconnect_b,
+                                          use_l2=config.use_l2,
+                                          book_depth=config.book_depth))
 
     # Status and checkpoint timers
     last_status = time.time()
@@ -843,9 +989,12 @@ def main():
     parser.add_argument("--vol-filter", type=float, default=0.8,
                         help="Vol filter: only trade when spread_std > N * cost (0=disabled)")
     parser.add_argument("--cooldown", type=int, default=0, help="Min ticks between trades")
-    parser.add_argument("--slippage", type=float, default=2.0, help="Slippage per side in bps")
+    parser.add_argument("--slippage", type=float, default=2.0, help="Fallback slippage per side in bps (when L2 unavailable)")
+    parser.add_argument("--max-slippage", type=float, default=10.0, help="Max acceptable slippage per side in bps (liquidity gate)")
     parser.add_argument("--capital", type=float, default=1000.0, help="Capital per trade in USD")
     parser.add_argument("--no-ws", action="store_true", help="Force REST polling (skip WebSocket)")
+    parser.add_argument("--no-l2", action="store_true", help="Disable L2 order book collection")
+    parser.add_argument("--book-depth", type=int, default=10, help="Number of order book levels to collect")
     parser.add_argument("--poll-interval", type=int, default=1000, help="REST poll interval in ms")
     parser.add_argument("--output-dir", default="data/paper_trading", help="Output directory")
 
@@ -867,9 +1016,12 @@ def main():
         vol_filter_mult=args.vol_filter,
         cooldown_ticks=args.cooldown,
         slippage_bps=args.slippage,
+        max_slippage_bps=args.max_slippage,
         capital_usd=args.capital,
         output_dir=args.output_dir,
         use_websocket=not args.no_ws,
+        use_l2=not args.no_l2,
+        book_depth=args.book_depth,
         poll_interval_ms=args.poll_interval,
     )
 
