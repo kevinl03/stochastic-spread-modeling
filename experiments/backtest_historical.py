@@ -39,6 +39,13 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.fees import TRADING_FEES_TAKER
 
+# Try to use C++ signal engine for hot-path acceleration
+try:
+    import signal_engine as _cpp
+    _USE_CPP = True
+except ImportError:
+    _USE_CPP = False
+
 
 # ── Data Loading ──────────────────────────────────────────────────────────────
 
@@ -203,7 +210,25 @@ def run_ou_strategy(
     if len(spread_bps) < warmup + 10:
         return []
 
-    ou = estimate_ou_params(spread_bps[:warmup * 2] if len(spread_bps) > warmup * 2 else spread_bps)
+    # C++ fast path: run entire backtest in native code
+    if _USE_CPP:
+        cpp_trades = _cpp.backtest(
+            spread_bps.astype(np.float64), warmup,
+            entry_z, exit_z, fee_bps, max_holding, 1.0, "ou"
+        )
+        return [
+            Trade(
+                entry_idx=t.entry_idx, exit_idx=t.exit_idx,
+                direction="short_spread" if t.direction == -1 else "long_spread",
+                entry_spread_bps=t.entry_spread, exit_spread_bps=t.exit_spread,
+                pnl_gross_bps=t.pnl_gross, fee_bps=fee_bps,
+                pnl_net_bps=t.pnl_net,
+                holding_periods=t.exit_idx - t.entry_idx,
+                entry_time=str(timestamps[t.entry_idx]) if t.entry_idx < len(timestamps) else "",
+                exit_time=str(timestamps[t.exit_idx]) if t.exit_idx < len(timestamps) else "",
+            )
+            for t in cpp_trades
+        ]
 
     trades = []
     position = None
@@ -212,7 +237,12 @@ def run_ou_strategy(
 
     for i in range(warmup, len(spread_bps)):
         s = spread_bps[i]
-        z = (s - ou.mu) / ou.sigma if ou.sigma > 1e-10 else 0
+        # Re-estimate OU params on trailing window (matches C++ backtest_engine)
+        window_data = spread_bps[i + 1 - warmup : i + 1]
+        ou = estimate_ou_params(window_data)
+        if ou.theta <= 0 or ou.sigma < 1e-10:
+            continue
+        z = (s - ou.mu) / ou.sigma
 
         if position is None:
             if z > entry_z:
@@ -266,13 +296,34 @@ def run_zscore_strategy(
     if len(spread_bps) < window + 10:
         return []
 
+    # C++ fast path
+    if _USE_CPP:
+        cpp_trades = _cpp.backtest(
+            spread_bps.astype(np.float64), window,
+            entry_z, exit_z, fee_bps, max_holding, 1.0, "zscore"
+        )
+        return [
+            Trade(
+                entry_idx=t.entry_idx, exit_idx=t.exit_idx,
+                direction="short_spread" if t.direction == -1 else "long_spread",
+                entry_spread_bps=t.entry_spread, exit_spread_bps=t.exit_spread,
+                pnl_gross_bps=t.pnl_gross, fee_bps=fee_bps,
+                pnl_net_bps=t.pnl_net,
+                holding_periods=t.exit_idx - t.entry_idx,
+                entry_time=str(timestamps[t.entry_idx]) if t.entry_idx < len(timestamps) else "",
+                exit_time=str(timestamps[t.exit_idx]) if t.exit_idx < len(timestamps) else "",
+            )
+            for t in cpp_trades
+        ]
+
     trades = []
     position = None
     entry_idx = 0
     entry_spread = 0.0
 
     for i in range(window, len(spread_bps)):
-        lookback = spread_bps[i - window:i]
+        # Include current bar in window (matches C++ rolling_zscore and paper_trader.py)
+        lookback = spread_bps[i + 1 - window : i + 1]
         mu = np.mean(lookback)
         sigma = np.std(lookback)
         s = spread_bps[i]
