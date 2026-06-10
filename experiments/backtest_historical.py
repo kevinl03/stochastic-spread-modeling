@@ -230,8 +230,6 @@ def run_ou_strategy(
             for t in cpp_trades
         ]
 
-    ou = estimate_ou_params(spread_bps[:warmup * 2] if len(spread_bps) > warmup * 2 else spread_bps)
-
     trades = []
     position = None
     entry_idx = 0
@@ -239,7 +237,12 @@ def run_ou_strategy(
 
     for i in range(warmup, len(spread_bps)):
         s = spread_bps[i]
-        z = (s - ou.mu) / ou.sigma if ou.sigma > 1e-10 else 0
+        # Re-estimate OU params on trailing window (matches C++ backtest_engine)
+        window_data = spread_bps[i + 1 - warmup : i + 1]
+        ou = estimate_ou_params(window_data)
+        if ou.theta <= 0 or ou.sigma < 1e-10:
+            continue
+        z = (s - ou.mu) / ou.sigma
 
         if position is None:
             if z > entry_z:
@@ -319,7 +322,8 @@ def run_zscore_strategy(
     entry_spread = 0.0
 
     for i in range(window, len(spread_bps)):
-        lookback = spread_bps[i - window:i]
+        # Include current bar in window (matches C++ rolling_zscore and paper_trader.py)
+        lookback = spread_bps[i + 1 - window : i + 1]
         mu = np.mean(lookback)
         sigma = np.std(lookback)
         s = spread_bps[i]
