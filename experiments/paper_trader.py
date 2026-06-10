@@ -28,6 +28,13 @@ import numpy as np
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Try to use C++ signal engine for hot-path acceleration
+try:
+    import signal_engine as _cpp
+    _USE_CPP = True
+except ImportError:
+    _USE_CPP = False
 from scripts.fees import TRADING_FEES_TAKER
 from scripts.data import COIN_MARKETS
 
@@ -128,6 +135,10 @@ class State:
 
 def estimate_ou_params(spreads: np.ndarray, dt: float = 1.0):
     """Estimate OU parameters from spread time series."""
+    if _USE_CPP:
+        result = _cpp.estimate_ou_params(spreads.astype(np.float64), dt)
+        return result[0], result[1], result[2]
+
     if len(spreads) < 20:
         return None, None, None
 
@@ -242,6 +253,9 @@ def compute_spread_prediction_interval(
 
 def compute_zscore_rolling(spreads: np.ndarray, window: int):
     """Compute z-score of last spread relative to rolling window."""
+    if _USE_CPP:
+        z = _cpp.rolling_zscore(spreads.astype(np.float64), window)
+        return None if np.isnan(z) else z
     if len(spreads) < window:
         return None
     recent = spreads[-window:]
@@ -254,6 +268,9 @@ def compute_zscore_rolling(spreads: np.ndarray, window: int):
 
 def compute_ou_zscore(spreads: np.ndarray, window: int):
     """Compute z-score using OU-estimated parameters."""
+    if _USE_CPP:
+        z = _cpp.ou_zscore(spreads.astype(np.float64), window)
+        return None if np.isnan(z) else z
     if len(spreads) < window:
         return None
     recent = spreads[-window:]
