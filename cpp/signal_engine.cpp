@@ -141,10 +141,12 @@ double rolling_zscore(const double* data, size_t n, int window) {
     }
 
     double mean = sum / window;
-    // BUG: using sample variance (n-1) here, but np.std() uses population
-    // variance (n) by default. This will cause a mismatch with the Python
-    // reference implementation.
-    double var = (sum2 - sum * sum / window) / (window - 1);
+    // Use population variance (divide by n, not n-1) to match np.std()
+    // which defaults to ddof=0.  Using sample variance (n-1) here caused
+    // a subtle z-score mismatch vs the Python reference — the difference
+    // is small for large windows but ~1.7% for window=60, enough to
+    // shift entry/exit signals by 1-2 bars.
+    double var = (sum2 / window) - (mean * mean);
     if (var < 1e-20) return std::numeric_limits<double>::quiet_NaN();
 
     double std = std::sqrt(var);
