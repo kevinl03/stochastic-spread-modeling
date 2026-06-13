@@ -26,6 +26,10 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0\.."
 
+REM Use the project venv's Python if present, else fall back to system python.
+set "PY=.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
+
 REM Default args if none provided
 set "ARGS=%*"
 if "%ARGS%"=="" set "ARGS=--hours 168 --interval 60 --slow-every 10"
@@ -35,7 +39,7 @@ echo.
 echo [%date% %time%] Starting orchestrator...
 echo.
 
-python -m experiments.collect_all %ARGS%
+"%PY%" -m experiments.collect_all %ARGS%
 
 set "EXIT_CODE=%ERRORLEVEL%"
 
