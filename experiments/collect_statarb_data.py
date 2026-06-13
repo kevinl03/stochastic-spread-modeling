@@ -13,11 +13,15 @@ Collects 10 data types per snapshot at configurable intervals:
   9. Withdrawal/deposit status per coin per chain
  10. Exchange health status
 
-Output: JSONL files in data/statarb/<run_id>/, one per data type.
-Each line is a JSON object with a UTC ISO-8601 timestamp.
+Output: JSONL files in data/statarb/<run_id>/<data_type>/<YYYYMMDD>.jsonl,
+partitioned by UTC day so a multi-day run yields bounded, independently
+loadable files per signal. Each line is a JSON object with a UTC ISO-8601
+timestamp. Readers (build_features, backtests, export) accept this layout and
+the legacy flat <data_type>.jsonl layout transparently.
 
 Usage:
     python -m experiments.collect_statarb_data [--interval 30] [--hours 24] [--ob-depth 20]
+    python -m experiments.collect_statarb_data --assets volatile --hours 168 --interval 60
 """
 
 from __future__ import annotations
@@ -68,6 +72,7 @@ DEFAULT_HOURS = 24              # total runtime
 DEFAULT_OB_DEPTH = 20           # order book levels per side
 DEFAULT_OHLCV_CANDLES = 5       # number of 1m candles to fetch
 DEFAULT_TRADES_LIMIT = 50       # recent trades per pair
+DEFAULT_SLOW_EVERY = 10         # collect slow/heavy signals every Nth snapshot
 
 # Stablecoin perpetual symbols to check for funding rates & OI.
 # Format: CCXT unified symbol for the perpetual contract.
@@ -85,6 +90,9 @@ VOLATILE_PERP_SYMBOLS = [
     "CRV/USDT:USDT", "LDO/USDT:USDT", "UNI/USDT:USDT", "AAVE/USDT:USDT",
     "ARB/USDT:USDT", "OP/USDT:USDT",
     "PEPE/USDT:USDT", "WIF/USDT:USDT",
+    "BONK/USDT:USDT", "FLOKI/USDT:USDT", "SHIB/USDT:USDT",
+    "WLD/USDT:USDT", "SEI/USDT:USDT", "SUI/USDT:USDT",
+    "TIA/USDT:USDT", "ENA/USDT:USDT",
 ]
 
 ALL_PERP_SYMBOLS = STABLECOIN_PERP_SYMBOLS + VOLATILE_PERP_SYMBOLS
@@ -157,16 +165,25 @@ def collect_tickers(
                 continue
 
             try:
+                _t0 = time.time()
                 t = ex.fetch_ticker(market)
+                recv_latency_ms = round((time.time() - _t0) * 1000.0, 1)
                 bid = _safe_float(t.get("bid"))
                 ask = _safe_float(t.get("ask"))
                 last = _safe_float(t.get("last"))
+                # Top-of-book sizes: cheap microstructure signal (queue imbalance,
+                # available size at touch) that ships inside the ticker payload.
+                bid_volume = _safe_float(t.get("bidVolume"))
+                ask_volume = _safe_float(t.get("askVolume"))
                 vol = _safe_float(t.get("baseVolume"))
                 quote_vol = _safe_float(t.get("quoteVolume"))
                 high = _safe_float(t.get("high"))
                 low = _safe_float(t.get("low"))
                 vwap = _safe_float(t.get("vwap"))
                 pct_change = _safe_float(t.get("percentage"))
+                # Exchange-reported quote time lets us measure cross-venue
+                # staleness/lag later (vs our local receive time `ts`).
+                exch_ts = t.get("timestamp")
 
                 # Normalize mid to USD
                 mid = None
@@ -196,12 +213,16 @@ def collect_tickers(
                     "mid": mid,
                     "price_usd": price_usd,
                     "spread_bps": spread_bps,
+                    "bid_volume": bid_volume,
+                    "ask_volume": ask_volume,
                     "base_volume_24h": vol,
                     "quote_volume_24h": quote_vol,
                     "high_24h": high,
                     "low_24h": low,
                     "vwap": vwap,
                     "pct_change_24h": pct_change,
+                    "exchange_timestamp": exch_ts,
+                    "recv_latency_ms": recv_latency_ms,
                 }
                 records.append(rec)
                 raw_tickers[(ex_name, coin)] = rec
@@ -769,29 +790,63 @@ def collect_exchange_status(snapshot_idx: int) -> List[Dict]:
 # ---------------------------------------------------------------------------
 
 class DataWriter:
-    """Manages JSONL output files with crash-safe flushing."""
+    """
+    Manages JSONL output files with crash-safe flushing and daily partitioning.
+
+    Output layout (per run directory):
+        <data_type>/<YYYYMMDD>.jsonl
+
+    Files are partitioned by UTC day so that a week-long run produces a handful
+    of bounded, independently-loadable files per signal instead of one giant
+    multi-GB file. This keeps the data easy to inspect, copy, and load a slice
+    at a time later (e.g. ``pd.read_json('orderbook/20260613.jsonl', lines=True)``).
+
+    Each ``write()`` call flushes the underlying buffers, so at most the records
+    from a single in-progress snapshot can be lost on a hard crash.
+    """
 
     def __init__(self, output_dir: Path):
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._files: Dict[str, Any] = {}
+        # key: (data_type, utc_date_str) -> open file handle
+        self._files: Dict[Tuple[str, str], Any] = {}
 
-    def _get_file(self, data_type: str):
-        if data_type not in self._files:
-            path = self.output_dir / f"{data_type}.jsonl"
-            self._files[data_type] = open(path, "a", encoding="utf-8")
-        return self._files[data_type]
+    @staticmethod
+    def _utc_date() -> str:
+        return datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    def _get_file(self, data_type: str, date_str: str):
+        key = (data_type, date_str)
+        f = self._files.get(key)
+        if f is None:
+            type_dir = self.output_dir / data_type
+            type_dir.mkdir(parents=True, exist_ok=True)
+            f = open(type_dir / f"{date_str}.jsonl", "a", encoding="utf-8")
+            self._files[key] = f
+        return f
 
     def write(self, records: List[Dict]):
+        date_str = self._utc_date()
+        touched = set()
         for rec in records:
             data_type = rec.get("type", "unknown")
-            f = self._get_file(data_type)
+            f = self._get_file(data_type, date_str)
             f.write(json.dumps(rec, default=str) + "\n")
+            touched.add(f)
+        # Flush once per batch (per snapshot/signal) rather than per record:
+        # crash-safe at snapshot granularity with far less syscall overhead
+        # over a multi-day run.
+        for f in touched:
             f.flush()
+            os.fsync(f.fileno())
 
     def close(self):
         for f in self._files.values():
-            f.close()
+            try:
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                f.close()
         self._files.clear()
 
 
@@ -811,6 +866,11 @@ def main():
                         help=f"Number of 1m OHLCV candles (default: {DEFAULT_OHLCV_CANDLES})")
     parser.add_argument("--trades", type=int, default=DEFAULT_TRADES_LIMIT,
                         help=f"Recent trades limit (default: {DEFAULT_TRADES_LIMIT})")
+    parser.add_argument("--slow-every", type=int, default=DEFAULT_SLOW_EVERY,
+                        help="Collect slow/heavy signals (funding, OI, withdrawal "
+                             "status, exchange status) only every Nth snapshot "
+                             f"(default: {DEFAULT_SLOW_EVERY}). Saves rate limit "
+                             "budget on a long run.")
     parser.add_argument("--skip-orderbook", action="store_true",
                         help="Skip order book collection (faster snapshots)")
     parser.add_argument("--skip-ohlcv", action="store_true",
@@ -856,6 +916,7 @@ def main():
         args.ob_depth = cfg.get("ob_depth", args.ob_depth)
         args.candles = cfg.get("candles", args.candles)
         args.trades = cfg.get("trades_limit", args.trades)
+        args.slow_every = cfg.get("slow_every", args.slow_every)
         args.skip_orderbook = cfg.get("skip_orderbook", args.skip_orderbook)
         args.skip_ohlcv = cfg.get("skip_ohlcv", args.skip_ohlcv)
         args.skip_trades = cfg.get("skip_trades", args.skip_trades)
@@ -910,6 +971,7 @@ def main():
             "ob_depth": args.ob_depth,
             "candles": args.candles,
             "trades_limit": args.trades,
+            "slow_every": args.slow_every,
             "skip_orderbook": args.skip_orderbook,
             "skip_ohlcv": args.skip_ohlcv,
             "skip_trades": args.skip_trades,
@@ -937,6 +999,7 @@ def main():
         "ob_depth": args.ob_depth,
         "candles": args.candles,
         "trades_limit": args.trades,
+        "slow_every": args.slow_every,
         "skip_orderbook": args.skip_orderbook,
         "skip_ohlcv": args.skip_ohlcv,
         "skip_trades": args.skip_trades,
@@ -980,6 +1043,9 @@ def main():
     if not args.skip_exchange_status:
         print(f" + exchange_status", end="")
     print(f" + spread_matrix")
+    print(f"  Slow signals (funding/OI/withdrawal/status) every "
+          f"{args.slow_every} snapshots (~{args.slow_every * args.interval}s).")
+    print(f"  Output partitioned by UTC day: {out_dir}/<signal>/<YYYYMMDD>.jsonl")
     print(f"  Press Ctrl+C to stop gracefully.\n")
 
     _prevent_sleep()
@@ -1015,30 +1081,38 @@ def main():
                 writer.write(trade_recs)
                 trade_count = sum(1 for r in trade_recs if "error" not in r)
 
+            # Slow-changing / heavy signals only run every `slow_every` snapshots.
+            # Funding (8h settlement), OI, withdrawal flags and exchange status
+            # barely move between 30s snapshots, while fetch_currencies (used by
+            # withdrawal status) is one of the heaviest REST calls there is.
+            # Sampling them sparsely is the single biggest rate-limit saver for a
+            # multi-day unattended run.
+            do_slow = (snapshot_idx == 1) or (snapshot_idx % args.slow_every == 0)
+
             # 5) Funding rates
             fr_count = 0
-            if not args.skip_funding:
+            if not args.skip_funding and do_slow:
                 fr_recs = collect_funding_rates(snapshot_idx)
                 writer.write(fr_recs)
                 fr_count = len(fr_recs)
 
             # 6) Open interest
             oi_count = 0
-            if not args.skip_oi:
+            if not args.skip_oi and do_slow:
                 oi_recs = collect_open_interest(snapshot_idx)
                 writer.write(oi_recs)
                 oi_count = len(oi_recs)
 
             # 7) Withdrawal/deposit status
             ws_count = 0
-            if not args.skip_withdrawal_status:
+            if not args.skip_withdrawal_status and do_slow:
                 ws_recs = collect_withdrawal_status(snapshot_idx)
                 writer.write(ws_recs)
                 ws_count = len(ws_recs)
 
             # 8) Exchange status
             es_count = 0
-            if not args.skip_exchange_status:
+            if not args.skip_exchange_status and do_slow:
                 es_recs = collect_exchange_status(snapshot_idx)
                 writer.write(es_recs)
                 es_count = len(es_recs)
