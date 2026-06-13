@@ -65,9 +65,19 @@ def allow_sleep():
 class ManagedProcess:
     """A subprocess that auto-restarts on crash."""
 
-    def __init__(self, name: str, cmd: list[str], cwd: str):
+    def __init__(self, name: str, cmd=None, cwd: str = None, cmd_factory=None):
+        """
+        cmd:         a static command list, OR
+        cmd_factory: a zero-arg callable returning the command list. Re-evaluated
+                     on every (re)start so the command can change between runs —
+                     used by the stat-arb collector to switch to ``--resume`` once
+                     a checkpoint exists, so restarts continue the same run dir.
+        """
+        if cmd is None and cmd_factory is None:
+            raise ValueError("ManagedProcess needs either cmd or cmd_factory")
         self.name = name
-        self.cmd = cmd
+        self.cmd_factory = cmd_factory
+        self.cmd = cmd if cmd is not None else cmd_factory()
         self.cwd = cwd
         self.process: subprocess.Popen | None = None
         self.restart_count = 0
@@ -78,6 +88,8 @@ class ManagedProcess:
 
     def start(self):
         """Start or restart the subprocess."""
+        if self.cmd_factory is not None:
+            self.cmd = self.cmd_factory()
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         if self.restart_count == 0:
             print(f"  [{ts}] LAUNCH {self.name}")
@@ -198,6 +210,42 @@ FILL_RATE_CONFIGS = [
 ]
 
 
+def _resolve_statarb_run(repo_root: str, hours: float) -> tuple[Path, bool]:
+    """
+    Decide which stat-arb run directory this orchestrator session should use.
+
+    To make the collector survive both internal restarts and orchestrator-level
+    relaunches (run_all.bat) as ONE continuous dataset, we pin a single run dir
+    per session and record it in ``data/statarb/.orchestrator_active``.
+
+    Returns (run_dir, is_resume). We reuse the recorded active run only if it has
+    a checkpoint AND is still within its original time budget — this prevents
+    resuming a long-finished run (which would exit instantly and restart-loop).
+    """
+    base = Path(repo_root) / "data" / "statarb"
+    base.mkdir(parents=True, exist_ok=True)
+    marker = base / ".orchestrator_active"
+
+    if marker.exists():
+        try:
+            active = Path(marker.read_text(encoding="utf-8").strip())
+            state_file = active / "_state.json"
+            if state_file.exists():
+                state = json.loads(state_file.read_text(encoding="utf-8"))
+                start = datetime.fromisoformat(state["start_ts"])
+                cfg_hours = state.get("config", {}).get("hours", hours)
+                elapsed_h = (datetime.now(timezone.utc) - start).total_seconds() / 3600
+                if elapsed_h < cfg_hours:
+                    return active, True
+        except Exception:
+            pass  # fall through to a fresh run
+
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    active = base / run_id
+    marker.write_text(str(active), encoding="utf-8")
+    return active, False
+
+
 def build_processes(args) -> list[ManagedProcess]:
     """Build the list of managed subprocesses based on CLI flags."""
     repo_root = str(Path(__file__).parent.parent.resolve())
@@ -233,15 +281,26 @@ def build_processes(args) -> list[ManagedProcess]:
             ] + ws_flag
             procs.append(ManagedProcess(cfg["name"], cmd, repo_root))
 
-    # 3. Stat-arb broad collector
+    # 3. Stat-arb broad collector (REST). Uses the tuned long-run settings so it
+    #    stays within rate limits for a multi-day run. A cmd_factory lets every
+    #    (re)start resume the same run dir once a checkpoint exists, so the
+    #    dataset stays continuous across crashes and orchestrator relaunches.
     if not args.skip_statarb:
-        cmd = [
-            python, "-m", "experiments.collect_statarb_data",
-            "--hours", str(args.hours),
-            "--interval", "30",
-            "--assets", "volatile",
-        ]
-        procs.append(ManagedProcess("STATARB", cmd, repo_root))
+        statarb_dir, _ = _resolve_statarb_run(repo_root, args.hours)
+
+        def _statarb_cmd(statarb_dir=statarb_dir):
+            base_cmd = [python, "-m", "experiments.collect_statarb_data"]
+            if (statarb_dir / "_state.json").exists():
+                return base_cmd + ["--resume", str(statarb_dir)]
+            return base_cmd + [
+                "--hours", str(args.hours),
+                "--interval", str(args.interval),
+                "--slow-every", str(args.slow_every),
+                "--assets", "volatile",
+                "--output-dir", str(statarb_dir),
+            ]
+
+        procs.append(ManagedProcess("STATARB", cmd_factory=_statarb_cmd, cwd=repo_root))
 
     return procs
 
@@ -255,10 +314,19 @@ def main():
         description="Continuous data collection orchestrator — runs paper traders, "
                     "fill-rate trackers, and stat-arb collector simultaneously"
     )
-    parser.add_argument("--hours", type=float, default=120,
-                        help="Total hours to run (default: 120 = 5 days)")
+    parser.add_argument("--hours", type=float, default=168,
+                        help="Total hours to run (default: 168 = 7 days)")
+    parser.add_argument("--interval", type=int, default=60,
+                        help="Seconds between stat-arb REST snapshots (default: 60). "
+                             "Higher = lighter rate-limit load over a long run.")
+    parser.add_argument("--slow-every", type=int, default=10,
+                        help="Collect slow/heavy stat-arb signals (funding, OI, "
+                             "withdrawal/exchange status) every Nth snapshot "
+                             "(default: 10).")
     parser.add_argument("--no-ws", action="store_true",
-                        help="Force REST polling for all feeds")
+                        help="Force REST polling for all feeds. NOT recommended for "
+                             "long runs: it pushes paper traders onto REST, competing "
+                             "with the collector's rate-limit budget.")
     parser.add_argument("--skip-paper", action="store_true",
                         help="Skip paper trader processes")
     parser.add_argument("--skip-fill-rate", action="store_true",
@@ -275,6 +343,8 @@ def main():
     print(f"  Started: {datetime.now(timezone.utc).isoformat()}")
     print(f"  Duration: {args.hours:.0f} hours ({args.hours/24:.1f} days)")
     print(f"  Feed mode: {'REST polling' if args.no_ws else 'WebSocket (REST fallback)'}")
+    if not args.skip_statarb:
+        print(f"  Stat-arb collector: interval={args.interval}s, slow-every={args.slow_every}")
     print(f"{'='*60}")
 
     # Build subprocess list
