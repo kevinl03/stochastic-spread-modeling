@@ -1107,6 +1107,20 @@ def main():
             snapshot_idx += 1
             snap_start = time.time()
 
+            # Decide up front whether this is a heavy "slow signal" snapshot so
+            # the heartbeat can warn that it will take longer. Snapshot 1 always
+            # runs the slow signals to establish a baseline.
+            do_slow = (snapshot_idx == 1) or (snapshot_idx % args.slow_every == 0)
+
+            # Heartbeat BEFORE any network calls: a full snapshot can take ~60-85s
+            # (longer when slow signals run), and without this line the console
+            # sits silent the whole time and looks hung.
+            print(
+                f"  [{snapshot_idx:>4}/{expected_snapshots}] collecting"
+                f"{' + slow signals (funding/OI/withdrawal/status — slower)' if do_slow else ''}...",
+                flush=True,
+            )
+
             # 1) Tickers (always — foundation of everything else)
             ticker_recs, raw_tickers = collect_tickers(snapshot_idx)
             writer.write(ticker_recs)
@@ -1133,13 +1147,12 @@ def main():
                 writer.write(trade_recs)
                 trade_count = sum(1 for r in trade_recs if "error" not in r)
 
-            # Slow-changing / heavy signals only run every `slow_every` snapshots.
-            # Funding (8h settlement), OI, withdrawal flags and exchange status
-            # barely move between 30s snapshots, while fetch_currencies (used by
-            # withdrawal status) is one of the heaviest REST calls there is.
-            # Sampling them sparsely is the single biggest rate-limit saver for a
-            # multi-day unattended run.
-            do_slow = (snapshot_idx == 1) or (snapshot_idx % args.slow_every == 0)
+            # Slow-changing / heavy signals only run every `slow_every` snapshots
+            # (decided above as `do_slow`). Funding (8h settlement), OI, withdrawal
+            # flags and exchange status barely move between snapshots, while
+            # fetch_currencies (used by withdrawal status) is one of the heaviest
+            # REST calls there is. Sampling them sparsely is the single biggest
+            # rate-limit saver for a multi-day unattended run.
 
             # 5) Funding rates
             fr_count = 0
