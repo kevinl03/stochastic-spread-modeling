@@ -1,24 +1,61 @@
 import ccxt
 from math import isnan  # not strictly needed now, but harmless to keep
+from pathlib import Path
+
+
+def signal_files(data_dir, data_type: str) -> list:
+    """
+    Resolve the JSONL files for a collector signal, layout-agnostic.
+
+    Returns paths (oldest first) for both:
+      - daily-partitioned layout:  <data_dir>/<data_type>/<YYYYMMDD>.jsonl
+      - legacy flat layout:        <data_dir>/<data_type>.jsonl
+    """
+    base = Path(data_dir)
+    paths: list = []
+    part_dir = base / data_type
+    if part_dir.is_dir():
+        paths.extend(sorted(part_dir.glob("*.jsonl")))
+    flat = base / f"{data_type}.jsonl"
+    if flat.exists():
+        paths.append(flat)
+    return paths
 
 EXCHANGE_TIMEOUT_MS = 5000
+
+# Shared options for every exchange client.
+#   enableRateLimit: makes ccxt sleep between calls to respect each exchange's
+#     documented rate limit. Essential for an unattended multi-day run — without
+#     it, a tight collection loop will get the source IP throttled or banned.
+#   timeout: cap how long a single REST call can hang so one slow exchange does
+#     not stall an entire snapshot.
+_BASE_OPTIONS = {
+    "timeout": EXCHANGE_TIMEOUT_MS,
+    "enableRateLimit": True,
+}
+
+
+def _mk(exchange_cls):
+    """Instantiate a ccxt exchange with the shared, rate-limited options."""
+    return exchange_cls(dict(_BASE_OPTIONS))
+
 
 # 1. Exchanges — expanded to 12 for larger graph coverage
 #    CCXT Pro (async websocket) features are available via ccxt.pro;
 #    here we use the synchronous REST API for snapshot-based experiments.
 EXCHANGES = {
-    "binance": ccxt.binance({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "kraken": ccxt.kraken({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "kucoin": ccxt.kucoin({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "bybit": ccxt.bybit({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "okx": ccxt.okx({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "gateio": ccxt.gateio({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "bitget": ccxt.bitget({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "mexc": ccxt.mexc({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "htx": ccxt.htx({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "coinbase": ccxt.coinbase({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "cryptocom": ccxt.cryptocom({"timeout": EXCHANGE_TIMEOUT_MS}),
-    "phemex": ccxt.phemex({"timeout": EXCHANGE_TIMEOUT_MS}),
+    "binance": _mk(ccxt.binance),
+    "kraken": _mk(ccxt.kraken),
+    "kucoin": _mk(ccxt.kucoin),
+    "bybit": _mk(ccxt.bybit),
+    "okx": _mk(ccxt.okx),
+    "gateio": _mk(ccxt.gateio),
+    "bitget": _mk(ccxt.bitget),
+    "mexc": _mk(ccxt.mexc),
+    "htx": _mk(ccxt.htx),
+    "coinbase": _mk(ccxt.coinbase),
+    "cryptocom": _mk(ccxt.cryptocom),
+    "phemex": _mk(ccxt.phemex),
 }
 
 # 2. Top 10 common stablecoins we’ll track
@@ -42,6 +79,11 @@ VOLATILE_COINS = [
     "CRV", "LDO", "UNI", "AAVE",  # DeFi tokens
     "ARB", "OP",                    # L2 tokens
     "PEPE", "WIF",                  # memecoins
+    # Higher-volatility mid-caps / memecoins added for wider spread-std and
+    # cross-venue lag (where the stat-arb edge lives). Markets that don't exist
+    # on a given exchange are skipped gracefully at collection time.
+    "BONK", "FLOKI", "SHIB",        # memecoins
+    "WLD", "SEI", "SUI", "TIA", "ENA",  # higher-vol mid-caps
 ]
 
 # All coins combined
