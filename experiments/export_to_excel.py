@@ -110,9 +110,20 @@ def main():
 
     output_path = args.output or str(input_dir.parent / f"{input_dir.name}.xlsx")
 
-    # Find all JSONL files (skip _state.json)
-    jsonl_files = sorted(input_dir.glob("*.jsonl"))
-    if not jsonl_files:
+    # Discover signals in both layouts:
+    #   - daily-partitioned: <input_dir>/<data_type>/<YYYYMMDD>.jsonl
+    #   - legacy flat:       <input_dir>/<data_type>.jsonl
+    # Each data type becomes one sheet, concatenating all its daily files.
+    signals: dict[str, list[Path]] = {}
+    for sub in sorted(input_dir.iterdir()):
+        if sub.is_dir():
+            parts = sorted(sub.glob("*.jsonl"))
+            if parts:
+                signals.setdefault(sub.name, []).extend(parts)
+        elif sub.suffix == ".jsonl":
+            signals.setdefault(sub.stem, []).append(sub)
+
+    if not signals:
         print(f"ERROR: No .jsonl files found in {input_dir}")
         sys.exit(1)
 
@@ -121,11 +132,13 @@ def main():
     wb.remove(wb.active)
 
     total_records = 0
-    for jsonl_path in jsonl_files:
-        sheet_name = jsonl_path.stem[:31]  # Excel sheet name limit
+    for data_type in sorted(signals):
+        sheet_name = data_type[:31]  # Excel sheet name limit
         print(f"  {sheet_name}: ", end="", flush=True)
 
-        records = load_jsonl(jsonl_path)
+        records = []
+        for jsonl_path in signals[data_type]:
+            records.extend(load_jsonl(jsonl_path))
         if not records:
             print("0 records (skipped)")
             continue

@@ -28,6 +28,7 @@ from scipy.optimize import minimize_scalar
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.fees import TRADING_FEES_TAKER
+from scripts.data import signal_files
 
 
 # ---------------------------------------------------------------------------
@@ -36,27 +37,27 @@ from scripts.fees import TRADING_FEES_TAKER
 
 def load_tickers(data_dir: Path) -> pd.DataFrame:
     """Load ticker JSONL into a DataFrame with columns: ts, exchange, coin, price_usd, bid, ask, mid."""
-    path = data_dir / "ticker.jsonl"
     records = []
-    with open(path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            rec = json.loads(line)
-            if rec.get("type") != "ticker" or "error" in rec:
-                continue
-            records.append({
-                "ts": pd.Timestamp(rec["ts"]),
-                "snapshot_idx": rec["snapshot_idx"],
-                "exchange": rec["exchange"],
-                "coin": rec["coin"],
-                "price_usd": rec.get("price_usd"),
-                "bid": rec.get("bid"),
-                "ask": rec.get("ask"),
-                "mid": rec.get("mid"),
-                "volume_24h": rec.get("base_volume_24h"),
-            })
+    for path in signal_files(data_dir, "ticker"):
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                if rec.get("type") != "ticker" or "error" in rec:
+                    continue
+                records.append({
+                    "ts": pd.Timestamp(rec["ts"]),
+                    "snapshot_idx": rec["snapshot_idx"],
+                    "exchange": rec["exchange"],
+                    "coin": rec["coin"],
+                    "price_usd": rec.get("price_usd"),
+                    "bid": rec.get("bid"),
+                    "ask": rec.get("ask"),
+                    "mid": rec.get("mid"),
+                    "volume_24h": rec.get("base_volume_24h"),
+                })
     df = pd.DataFrame(records)
     df = df.dropna(subset=["price_usd"])
     df = df.sort_values(["ts", "exchange", "coin"]).reset_index(drop=True)
@@ -65,22 +66,26 @@ def load_tickers(data_dir: Path) -> pd.DataFrame:
 
 def load_funding_rates(data_dir: Path) -> pd.DataFrame:
     """Load funding rate JSONL."""
-    path = data_dir / "funding_rate.jsonl"
-    if not path.exists():
+    paths = signal_files(data_dir, "funding_rate")
+    if not paths:
         return pd.DataFrame()
     records = []
-    with open(path, "r") as f:
-        for line in f:
-            rec = json.loads(line.strip())
-            if rec.get("type") != "funding_rate":
-                continue
-            records.append({
-                "ts": pd.Timestamp(rec["ts"]),
-                "snapshot_idx": rec["snapshot_idx"],
-                "exchange": rec["exchange"],
-                "symbol": rec["symbol"],
-                "funding_rate": rec["funding_rate"],
-            })
+    for path in paths:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                if rec.get("type") != "funding_rate":
+                    continue
+                records.append({
+                    "ts": pd.Timestamp(rec["ts"]),
+                    "snapshot_idx": rec["snapshot_idx"],
+                    "exchange": rec["exchange"],
+                    "symbol": rec["symbol"],
+                    "funding_rate": rec["funding_rate"],
+                })
     return pd.DataFrame(records) if records else pd.DataFrame()
 
 

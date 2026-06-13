@@ -39,8 +39,8 @@ from scripts.fees import TRADING_FEES_TAKER
 
 # ── Data Loading ──────────────────────────────────────────────────────────────
 
-def _load_jsonl(path: Path, type_filter: str = None) -> list[dict]:
-    """Load JSONL file, optionally filtering by record type."""
+def _load_jsonl_file(path: Path, type_filter: str = None) -> list[dict]:
+    """Load a single JSONL file, optionally filtering by record type."""
     if not path.exists():
         return []
     records = []
@@ -58,16 +58,34 @@ def _load_jsonl(path: Path, type_filter: str = None) -> list[dict]:
     return records
 
 
+def _load_signal(base: Path, data_type: str, type_filter: str = None) -> list[dict]:
+    """
+    Load a signal regardless of on-disk layout.
+
+    Supports both:
+      - new daily-partitioned layout:  <base>/<data_type>/<YYYYMMDD>.jsonl
+      - legacy flat layout:            <base>/<data_type>.jsonl
+    """
+    records: list[dict] = []
+    part_dir = base / data_type
+    if part_dir.is_dir():
+        for path in sorted(part_dir.glob("*.jsonl")):
+            records.extend(_load_jsonl_file(path, type_filter))
+    # Also pick up a legacy flat file if present (or runs predating partitioning).
+    records.extend(_load_jsonl_file(base / f"{data_type}.jsonl", type_filter))
+    return records
+
+
 def load_all_signals(data_dir: str) -> dict:
-    """Load all signal types from a collector run."""
+    """Load all signal types from a collector run (partitioned or flat layout)."""
     base = Path(data_dir)
     return {
-        "tickers": _load_jsonl(base / "ticker.jsonl", "ticker"),
-        "funding_rates": _load_jsonl(base / "funding_rate.jsonl", "funding_rate"),
-        "open_interest": _load_jsonl(base / "open_interest.jsonl", "open_interest"),
-        "withdrawal_status": _load_jsonl(base / "withdrawal_status.jsonl", "withdrawal_status"),
-        "exchange_status": _load_jsonl(base / "exchange_status.jsonl", "exchange_status"),
-        "spread_matrix": _load_jsonl(base / "spread_matrix.jsonl", "spread_matrix"),
+        "tickers": _load_signal(base, "ticker", "ticker"),
+        "funding_rates": _load_signal(base, "funding_rate", "funding_rate"),
+        "open_interest": _load_signal(base, "open_interest", "open_interest"),
+        "withdrawal_status": _load_signal(base, "withdrawal_status", "withdrawal_status"),
+        "exchange_status": _load_signal(base, "exchange_status", "exchange_status"),
+        "spread_matrix": _load_signal(base, "spread_matrix", "spread_matrix"),
     }
 
 
