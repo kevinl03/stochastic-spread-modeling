@@ -855,6 +855,14 @@ class DataWriter:
 # ---------------------------------------------------------------------------
 
 def main():
+    # Force UTF-8 stdout/stderr so status prints (which use →, ×, ≈) don't crash
+    # on Windows consoles defaulting to cp1252 when run directly or via .bat.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser(description="Multi-signal stat arb data collector")
     parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL_SEC,
                         help=f"Seconds between snapshots (default: {DEFAULT_INTERVAL_SEC})")
