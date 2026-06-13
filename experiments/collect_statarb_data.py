@@ -33,9 +33,10 @@ import os
 import signal
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -73,6 +74,16 @@ DEFAULT_OB_DEPTH = 20           # order book levels per side
 DEFAULT_OHLCV_CANDLES = 5       # number of 1m candles to fetch
 DEFAULT_TRADES_LIMIT = 50       # recent trades per pair
 DEFAULT_SLOW_EVERY = 10         # collect slow/heavy signals every Nth snapshot
+
+# Per-snapshot collection fans out one worker thread per exchange. Each ccxt
+# instance still paces itself via enableRateLimit, but distinct instances hit
+# distinct hosts concurrently, so a snapshot takes ~the slowest single exchange
+# instead of the sum across all 12. The calls are I/O-bound (network waits
+# release the GIL), so threads — not processes — are the right tool. One thread
+# per exchange is the natural ceiling: extra workers can't speed up a single
+# exchange because its own rate limiter serializes its calls.
+DEFAULT_MAX_WORKERS = 12        # set by main() to len(EXCHANGES)
+_MAX_WORKERS = DEFAULT_MAX_WORKERS
 
 # Stablecoin perpetual symbols to check for funding rates & OI.
 # Format: CCXT unified symbol for the perpetual contract.
@@ -143,6 +154,44 @@ def _safe_float(v: Any) -> Optional[float]:
     return None
 
 
+def _collect_parallel(
+    worker: Callable[[str, Any], List[Dict]],
+) -> List[Dict]:
+    """
+    Run ``worker(ex_name, ex)`` for every exchange and flatten the results.
+
+    Each worker owns exactly one ccxt instance for the duration of the call, so
+    no instance is ever touched by two threads at once (the per-snapshot signals
+    run one after another, awaiting all futures before the next signal starts).
+    That keeps each exchange's built-in rate limiter authoritative while letting
+    the 12 exchanges run concurrently.
+
+    Falls back to a plain sequential loop when ``_MAX_WORKERS <= 1`` so the
+    behaviour is easy to A/B test and debug.
+    """
+    items = list(EXCHANGES.items())
+    if _MAX_WORKERS <= 1:
+        out: List[Dict] = []
+        for ex_name, ex in items:
+            try:
+                out.extend(worker(ex_name, ex))
+            except Exception:
+                pass
+        return out
+
+    records: List[Dict] = []
+    with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(items))) as pool:
+        futures = [pool.submit(worker, ex_name, ex) for ex_name, ex in items]
+        for fut in futures:
+            try:
+                records.extend(fut.result())
+            except Exception:
+                # A worker that dies wholesale (rare) shouldn't take down the
+                # snapshot; its exchange simply contributes no records this tick.
+                pass
+    return records
+
+
 def collect_tickers(
     snapshot_idx: int,
 ) -> Tuple[List[Dict], Dict[Tuple[str, str], Dict]]:
@@ -150,16 +199,11 @@ def collect_tickers(
     Fetch ticker data for every (exchange, coin) pair.
     Returns (list of ticker records, raw_tickers_by_node for downstream use).
     """
-    records = []
-    raw_tickers: Dict[Tuple[str, str], Dict] = {}
     ts = _now_iso()
-    failed_exchanges: set = set()
 
-    for coin in ACTIVE_COINS:
-        for ex_name, ex in EXCHANGES.items():
-            if ex_name in failed_exchanges:
-                continue
-
+    def _worker(ex_name: str, ex) -> List[Dict]:
+        out: List[Dict] = []
+        for coin in ACTIVE_COINS:
             market = COIN_MARKETS.get(coin, {}).get(ex_name)
             if not market:
                 continue
@@ -200,7 +244,7 @@ def collect_tickers(
                 if bid is not None and ask is not None and mid and mid > 0:
                     spread_bps = ((ask - bid) / mid) * 10_000
 
-                rec = {
+                out.append({
                     "type": "ticker",
                     "ts": ts,
                     "snapshot_idx": snapshot_idx,
@@ -223,13 +267,12 @@ def collect_tickers(
                     "pct_change_24h": pct_change,
                     "exchange_timestamp": exch_ts,
                     "recv_latency_ms": recv_latency_ms,
-                }
-                records.append(rec)
-                raw_tickers[(ex_name, coin)] = rec
+                })
 
             except Exception as e:
-                failed_exchanges.add(ex_name)
-                records.append({
+                # One bad call (often a connection reset / timeout) usually means
+                # the whole exchange is unreachable this tick — stop hammering it.
+                out.append({
                     "type": "ticker",
                     "ts": ts,
                     "snapshot_idx": snapshot_idx,
@@ -238,7 +281,13 @@ def collect_tickers(
                     "market": market,
                     "error": str(e),
                 })
+                break
+        return out
 
+    records = _collect_parallel(_worker)
+    raw_tickers: Dict[Tuple[str, str], Dict] = {
+        (r["exchange"], r["coin"]): r for r in records if "error" not in r
+    }
     return records, raw_tickers
 
 
@@ -249,15 +298,11 @@ def collect_orderbooks(
     """
     Fetch L2 order book snapshots (top `depth` levels per side).
     """
-    records = []
     ts = _now_iso()
-    failed_exchanges: set = set()
 
-    for coin in ACTIVE_COINS:
-        for ex_name, ex in EXCHANGES.items():
-            if ex_name in failed_exchanges:
-                continue
-
+    def _worker(ex_name: str, ex) -> List[Dict]:
+        out: List[Dict] = []
+        for coin in ACTIVE_COINS:
             market = COIN_MARKETS.get(coin, {}).get(ex_name)
             if not market:
                 continue
@@ -293,7 +338,7 @@ def collect_orderbooks(
                 # Slippage at various notional sizes
                 slippage_levels = _compute_slippage(bids, asks, [1000, 5000, 10000, 50000])
 
-                rec = {
+                out.append({
                     "type": "orderbook",
                     "ts": ts,
                     "snapshot_idx": snapshot_idx,
@@ -311,12 +356,11 @@ def collect_orderbooks(
                     "slippage_bps": slippage_levels,
                     "bids_raw": [[round(p, 8), round(q, 4)] for p, q in bids],
                     "asks_raw": [[round(p, 8), round(q, 4)] for p, q in asks],
-                }
-                records.append(rec)
+                })
 
             except Exception as e:
                 # Some exchanges may not support order books for all pairs
-                records.append({
+                out.append({
                     "type": "orderbook",
                     "ts": ts,
                     "snapshot_idx": snapshot_idx,
@@ -327,9 +371,10 @@ def collect_orderbooks(
                 })
                 if "not support" in str(e).lower() or "not available" in str(e).lower():
                     continue
-                failed_exchanges.add(ex_name)
+                break  # connection-level failure: skip the rest of this exchange
+        return out
 
-    return records
+    return _collect_parallel(_worker)
 
 
 def _compute_slippage(
@@ -402,15 +447,11 @@ def collect_ohlcv(
     """
     Fetch recent 1-minute OHLCV candles.
     """
-    records = []
     ts = _now_iso()
-    failed_exchanges: set = set()
 
-    for coin in ACTIVE_COINS:
-        for ex_name, ex in EXCHANGES.items():
-            if ex_name in failed_exchanges:
-                continue
-
+    def _worker(ex_name: str, ex) -> List[Dict]:
+        out: List[Dict] = []
+        for coin in ACTIVE_COINS:
             market = COIN_MARKETS.get(coin, {}).get(ex_name)
             if not market:
                 continue
@@ -421,7 +462,7 @@ def collect_ohlcv(
                 for candle in candles:
                     # CCXT format: [timestamp, open, high, low, close, volume]
                     c_ts = candle[0]
-                    rec = {
+                    out.append({
                         "type": "ohlcv",
                         "ts": ts,
                         "snapshot_idx": snapshot_idx,
@@ -437,11 +478,10 @@ def collect_ohlcv(
                         "low": candle[3],
                         "close": candle[4],
                         "volume": candle[5],
-                    }
-                    records.append(rec)
+                    })
 
             except Exception as e:
-                records.append({
+                out.append({
                     "type": "ohlcv",
                     "ts": ts,
                     "snapshot_idx": snapshot_idx,
@@ -452,9 +492,10 @@ def collect_ohlcv(
                 })
                 if "not support" in str(e).lower():
                     continue
-                failed_exchanges.add(ex_name)
+                break
+        return out
 
-    return records
+    return _collect_parallel(_worker)
 
 
 def collect_trades(
@@ -464,15 +505,11 @@ def collect_trades(
     """
     Fetch recent trades — useful for trade flow analysis and realized spread.
     """
-    records = []
     ts = _now_iso()
-    failed_exchanges: set = set()
 
-    for coin in ACTIVE_COINS:
-        for ex_name, ex in EXCHANGES.items():
-            if ex_name in failed_exchanges:
-                continue
-
+    def _worker(ex_name: str, ex) -> List[Dict]:
+        out: List[Dict] = []
+        for coin in ACTIVE_COINS:
             market = COIN_MARKETS.get(coin, {}).get(ex_name)
             if not market:
                 continue
@@ -504,7 +541,7 @@ def collect_trades(
                 ts_min = min(timestamps) if timestamps else None
                 ts_max = max(timestamps) if timestamps else None
 
-                rec = {
+                out.append({
                     "type": "trades",
                     "ts": ts,
                     "snapshot_idx": snapshot_idx,
@@ -538,11 +575,10 @@ def collect_trades(
                         }
                         for t in trades[-20:]  # keep last 20 for storage efficiency
                     ],
-                }
-                records.append(rec)
+                })
 
             except Exception as e:
-                records.append({
+                out.append({
                     "type": "trades",
                     "ts": ts,
                     "snapshot_idx": snapshot_idx,
@@ -553,9 +589,10 @@ def collect_trades(
                 })
                 if "not support" in str(e).lower():
                     continue
-                failed_exchanges.add(ex_name)
+                break
+        return out
 
-    return records
+    return _collect_parallel(_worker)
 
 
 def compute_spread_matrix(
@@ -637,17 +674,16 @@ def collect_funding_rates(snapshot_idx: int) -> List[Dict]:
     Fetch perpetual funding rates for stablecoin perp contracts.
     Shows market positioning — negative = shorts pay longs (USDC expected to rise).
     """
-    records = []
     ts = _now_iso()
 
-    for ex_name, ex in EXCHANGES.items():
+    def _worker(ex_name: str, ex) -> List[Dict]:
         if not ex.has.get("fetchFundingRate", False):
-            continue
-
+            return []
+        out: List[Dict] = []
         for sym in ACTIVE_PERPS:
             try:
                 fr = ex.fetch_funding_rate(sym)
-                rec = {
+                out.append({
                     "type": "funding_rate",
                     "ts": ts,
                     "snapshot_idx": snapshot_idx,
@@ -662,12 +698,12 @@ def collect_funding_rates(snapshot_idx: int) -> List[Dict]:
                     "mark_price": fr.get("markPrice"),
                     "index_price": fr.get("indexPrice"),
                     "interest_rate": fr.get("interestRate"),
-                }
-                records.append(rec)
+                })
             except Exception:
                 pass  # Symbol may not exist on this exchange
+        return out
 
-    return records
+    return _collect_parallel(_worker)
 
 
 def collect_open_interest(snapshot_idx: int) -> List[Dict]:
@@ -675,17 +711,16 @@ def collect_open_interest(snapshot_idx: int) -> List[Dict]:
     Fetch open interest for stablecoin perpetual contracts.
     OI spikes precede funding rate moves and liquidity shifts.
     """
-    records = []
     ts = _now_iso()
 
-    for ex_name, ex in EXCHANGES.items():
+    def _worker(ex_name: str, ex) -> List[Dict]:
         if not ex.has.get("fetchOpenInterest", False):
-            continue
-
+            return []
+        out: List[Dict] = []
         for sym in ACTIVE_PERPS:
             try:
                 oi = ex.fetch_open_interest(sym)
-                rec = {
+                out.append({
                     "type": "open_interest",
                     "ts": ts,
                     "snapshot_idx": snapshot_idx,
@@ -694,12 +729,12 @@ def collect_open_interest(snapshot_idx: int) -> List[Dict]:
                     "open_interest_amount": oi.get("openInterestAmount"),
                     "open_interest_value": oi.get("openInterestValue"),
                     "datetime": oi.get("datetime"),
-                }
-                records.append(rec)
+                })
             except Exception:
                 pass
+        return out
 
-    return records
+    return _collect_parallel(_worker)
 
 
 def collect_withdrawal_status(snapshot_idx: int) -> List[Dict]:
@@ -708,15 +743,15 @@ def collect_withdrawal_status(snapshot_idx: int) -> List[Dict]:
     When withdrawals are disabled, trapped capital creates price dislocations.
     Changes in fees are also captured here.
     """
-    records = []
     ts = _now_iso()
 
-    for ex_name, ex in EXCHANGES.items():
+    def _worker(ex_name: str, ex) -> List[Dict]:
         try:
             currencies = ex.fetch_currencies()
         except Exception:
-            continue
+            return []
 
+        out: List[Dict] = []
         for coin in ACTIVE_COINS:
             c = currencies.get(coin)
             if not c:
@@ -739,7 +774,7 @@ def collect_withdrawal_status(snapshot_idx: int) -> List[Dict]:
                     "deposit_min": d_limits.get("min"),
                 })
 
-            rec = {
+            out.append({
                 "type": "withdrawal_status",
                 "ts": ts,
                 "snapshot_idx": snapshot_idx,
@@ -750,10 +785,10 @@ def collect_withdrawal_status(snapshot_idx: int) -> List[Dict]:
                 "withdraw": c.get("withdraw"),
                 "num_networks": len(net_records),
                 "networks": net_records,
-            }
-            records.append(rec)
+            })
+        return out
 
-    return records
+    return _collect_parallel(_worker)
 
 
 def collect_exchange_status(snapshot_idx: int) -> List[Dict]:
@@ -761,15 +796,14 @@ def collect_exchange_status(snapshot_idx: int) -> List[Dict]:
     Fetch exchange operational status (ok/maintenance/error).
     Maintenance windows cause temporary price dislocations.
     """
-    records = []
     ts = _now_iso()
 
-    for ex_name, ex in EXCHANGES.items():
+    def _worker(ex_name: str, ex) -> List[Dict]:
         if not ex.has.get("fetchStatus", False):
-            continue
+            return []
         try:
             status = ex.fetch_status()
-            rec = {
+            return [{
                 "type": "exchange_status",
                 "ts": ts,
                 "snapshot_idx": snapshot_idx,
@@ -777,12 +811,11 @@ def collect_exchange_status(snapshot_idx: int) -> List[Dict]:
                 "status": status.get("status"),
                 "updated": status.get("updated"),
                 "message": status.get("info", {}).get("msg") if isinstance(status.get("info"), dict) else None,
-            }
-            records.append(rec)
+            }]
         except Exception:
-            pass
+            return []
 
-    return records
+    return _collect_parallel(_worker)
 
 
 # ---------------------------------------------------------------------------
@@ -879,6 +912,10 @@ def main():
                              "status, exchange status) only every Nth snapshot "
                              f"(default: {DEFAULT_SLOW_EVERY}). Saves rate limit "
                              "budget on a long run.")
+    parser.add_argument("--max-workers", type=int, default=len(EXCHANGES),
+                        help="Worker threads per signal: one exchange each "
+                             f"(default: {len(EXCHANGES)} = all exchanges). "
+                             "Set to 1 to force sequential collection.")
     parser.add_argument("--skip-orderbook", action="store_true",
                         help="Skip order book collection (faster snapshots)")
     parser.add_argument("--skip-ohlcv", action="store_true",
@@ -903,8 +940,9 @@ def main():
     args = parser.parse_args()
 
     # --- Resolve asset configuration ---
-    global ACTIVE_COINS, ACTIVE_PERPS
+    global ACTIVE_COINS, ACTIVE_PERPS, _MAX_WORKERS
     ACTIVE_COINS, ACTIVE_PERPS = _resolve_asset_config(args.assets)
+    _MAX_WORKERS = max(1, args.max_workers)
     print(f"  [CONFIG] Asset mode: {args.assets} → {len(ACTIVE_COINS)} coins, {len(ACTIVE_PERPS)} perps")
 
     # --- Resume or fresh start ---
@@ -925,6 +963,8 @@ def main():
         args.candles = cfg.get("candles", args.candles)
         args.trades = cfg.get("trades_limit", args.trades)
         args.slow_every = cfg.get("slow_every", args.slow_every)
+        args.max_workers = cfg.get("max_workers", args.max_workers)
+        _MAX_WORKERS = max(1, args.max_workers)
         args.skip_orderbook = cfg.get("skip_orderbook", args.skip_orderbook)
         args.skip_ohlcv = cfg.get("skip_ohlcv", args.skip_ohlcv)
         args.skip_trades = cfg.get("skip_trades", args.skip_trades)
@@ -980,6 +1020,7 @@ def main():
             "candles": args.candles,
             "trades_limit": args.trades,
             "slow_every": args.slow_every,
+            "max_workers": args.max_workers,
             "skip_orderbook": args.skip_orderbook,
             "skip_ohlcv": args.skip_ohlcv,
             "skip_trades": args.skip_trades,
@@ -1008,6 +1049,7 @@ def main():
         "candles": args.candles,
         "trades_limit": args.trades,
         "slow_every": args.slow_every,
+        "max_workers": args.max_workers,
         "skip_orderbook": args.skip_orderbook,
         "skip_ohlcv": args.skip_ohlcv,
         "skip_trades": args.skip_trades,
@@ -1034,6 +1076,8 @@ def main():
     print(f"=== Stat Arb Data Collector ===")
     print(f"  Output: {out_dir}")
     print(f"  Interval: {args.interval}s | Duration: {args.hours}h")
+    print(f"  Parallelism: {_MAX_WORKERS} worker(s) "
+          f"({'per-exchange concurrent' if _MAX_WORKERS > 1 else 'sequential'})")
     print(f"  Expected snapshots: ~{expected_snapshots}")
     print(f"  Signals: ticker", end="")
     if not args.skip_orderbook:

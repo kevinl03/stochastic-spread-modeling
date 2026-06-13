@@ -19,9 +19,13 @@ REM Use the project venv's Python if present, else fall back to system python.
 set "PY=.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
 
-REM Default args if none provided
+REM Default args if none provided.
+REM --skip-ohlcv: 1-min candles are backfillable on the venues that matter
+REM   (see issue #33), so we drop them live to protect the ~60s snapshot cadence.
+REM Collection now fans out one thread per exchange, so the full signal set
+REM finishes in roughly the slowest single exchange's time rather than the sum.
 set "ARGS=%*"
-if "%ARGS%"=="" set "ARGS=--assets volatile --interval 60 --slow-every 10 --hours 168"
+if "%ARGS%"=="" set "ARGS=--assets volatile --interval 60 --slow-every 10 --hours 168 --skip-ohlcv"
 
 REM Track the output directory for auto-resume
 set "RESUME_DIR="

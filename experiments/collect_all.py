@@ -332,6 +332,10 @@ def build_processes(args) -> list[ManagedProcess]:
                 "--interval", str(args.interval),
                 "--slow-every", str(args.slow_every),
                 "--assets", "volatile",
+                # 1-min OHLCV is backfillable (issue #33); drop it live to keep
+                # the snapshot cadence near --interval. Collection is now
+                # per-exchange concurrent, so the remaining signals stay fast.
+                "--skip-ohlcv",
                 "--output-dir", str(statarb_dir),
             ]
 
