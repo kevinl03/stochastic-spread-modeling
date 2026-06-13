@@ -79,6 +79,13 @@ class ManagedProcess:
         self.cmd_factory = cmd_factory
         self.cmd = cmd if cmd is not None else cmd_factory()
         self.cwd = cwd
+        # Each child writes to its own log file rather than a PIPE. Over a
+        # multi-day run an undrained PIPE buffer fills and blocks the child;
+        # a file sink avoids that entirely and leaves a persistent per-process
+        # log to inspect later.
+        log_root = Path(cwd) / "data" / "logs" if cwd else Path("data") / "logs"
+        self.log_path = log_root / f"{name}.log"
+        self._log_fh = None
         self.process: subprocess.Popen | None = None
         self.restart_count = 0
         self.start_time = 0.0
@@ -86,25 +93,42 @@ class ManagedProcess:
         self.last_crash_time = 0.0
         self.backoff = 1.0
 
+    def _tail_log(self, n: int = 5) -> list[str]:
+        """Return the last n non-empty lines of this process's log file."""
+        try:
+            with open(self.log_path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 8192))
+                data = f.read().decode("utf-8", errors="replace")
+            lines = [ln.rstrip() for ln in data.splitlines() if ln.strip()]
+            return lines[-n:]
+        except Exception:
+            return []
+
     def start(self):
         """Start or restart the subprocess."""
         if self.cmd_factory is not None:
             self.cmd = self.cmd_factory()
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         if self.restart_count == 0:
-            print(f"  [{ts}] LAUNCH {self.name}")
+            print(f"  [{ts}] LAUNCH {self.name} (log: {self.log_path})")
         else:
             print(f"  [{ts}] RESTART {self.name} (attempt #{self.restart_count})")
+
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._log_fh = open(self.log_path, "ab")
+        self._log_fh.write(
+            f"\n===== {self.name} start @ {datetime.now(timezone.utc).isoformat()} "
+            f"(restart #{self.restart_count}) =====\n".encode("utf-8")
+        )
+        self._log_fh.flush()
 
         self.process = subprocess.Popen(
             self.cmd,
             cwd=self.cwd,
-            stdout=subprocess.PIPE,
+            stdout=self._log_fh,
             stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,  # line-buffered
             env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"},
         )
         self.start_time = time.time()
@@ -126,12 +150,16 @@ class ManagedProcess:
         print(f"  [{ts}] CRASHED {self.name} | exit={ret} | uptime={uptime/60:.1f}m | "
               f"restarts={self.restart_count}")
 
-        # Drain any remaining output
-        if self.process.stdout:
-            remaining = self.process.stdout.read()
-            if remaining and remaining.strip():
-                for line in remaining.strip().split("\n")[-5:]:  # last 5 lines
-                    print(f"    [{self.name}] {line.rstrip()}")
+        # Close the log handle and surface the last few lines for context.
+        if self._log_fh is not None:
+            try:
+                self._log_fh.flush()
+                self._log_fh.close()
+            except Exception:
+                pass
+            self._log_fh = None
+        for line in self._tail_log():
+            print(f"    [{self.name}] {line}")
 
         self.process = None
         return False
@@ -163,6 +191,13 @@ class ManagedProcess:
             pass
         self.total_uptime += time.time() - self.start_time
         self.process = None
+        if self._log_fh is not None:
+            try:
+                self._log_fh.flush()
+                self._log_fh.close()
+            except Exception:
+                pass
+            self._log_fh = None
 
 
 # ---------------------------------------------------------------------------
