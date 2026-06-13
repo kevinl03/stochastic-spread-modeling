@@ -49,7 +49,9 @@ EXCHANGES = {
     "kucoin": _mk(ccxt.kucoin),
     "bybit": _mk(ccxt.bybit),
     "okx": _mk(ccxt.okx),
-    "gateio": _mk(ccxt.gateio),
+    # ccxt renamed the `gateio` id to `gate` (~v4.4). Keep our internal key
+    # "gateio" so COIN_MARKETS and downstream references stay unchanged.
+    "gateio": _mk(ccxt.gate),
     "bitget": _mk(ccxt.bitget),
     "mexc": _mk(ccxt.mexc),
     "htx": _mk(ccxt.htx),
