@@ -103,6 +103,39 @@ python experiments/paper_trader.py --asset WIF --exchanges binance,cryptocom --s
 
 Press Ctrl+C to stop. Results are saved to `data/paper_trading/`.
 
+### Long-Run Data Collection
+
+Use the stat-arb collector to build a multi-signal dataset for research and model training:
+
+```bash
+# 7-day run, 60s cadence, slow signals every 10 snapshots
+python -m experiments.collect_statarb_data --assets volatile --interval 60 --slow-every 10 --hours 168
+```
+
+Useful flags:
+- `--skip-ohlcv`: disable OHLCV pulls when you want lighter network/API load.
+- `--hours`: total run duration (e.g. `0.5` for 30 minutes).
+- `--slow-every`: controls how often slow signals are fetched (higher = less frequent).
+
+Output is written under `data/statarb/<run_timestamp>/` and partitioned by UTC day per signal.
+
+#### Check Collector Bandwidth Without Stopping It (Windows PowerShell)
+
+```powershell
+# Find collector python processes and sample per-process I/O throughput.
+# This does not stop or restart the collector.
+Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -match 'collect_statarb_data' } |
+  Select-Object ProcessId, Name, CommandLine
+
+# Replace <PID> with the active collector PID from above.
+$pidValue = <PID>
+$instance = (Get-Counter '\Process(*)\ID Process').CounterSamples |
+  Where-Object { [int]$_.CookedValue -eq $pidValue } |
+  Select-Object -First 1 -ExpandProperty InstanceName
+Get-Counter "\Process($instance)\IO Other Bytes/sec" -SampleInterval 1 -MaxSamples 30
+```
+
 ### Benchmarks
 
 ```bash
