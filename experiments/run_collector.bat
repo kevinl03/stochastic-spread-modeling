@@ -4,7 +4,7 @@ REM Auto-restarting data collector wrapper for Windows.
 REM Survives laptop sleep (process resumes) and crash/shutdown (auto-restarts).
 REM
 REM Usage:
-REM   run_collector.bat                        -- default 24h, 60s interval
+REM   run_collector.bat                        -- default volatile, 168h (7 days)
 REM   run_collector.bat --interval 30 --hours 48
 REM   run_collector.bat --resume data\statarb\20260602_185451
 REM
@@ -15,9 +15,17 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0\.."
 
-REM Default args if none provided
+REM Use the project venv's Python if present, else fall back to system python.
+set "PY=.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
+
+REM Default args if none provided.
+REM --skip-ohlcv: 1-min candles are backfillable on the venues that matter
+REM   (see issue #33), so we drop them live to protect the ~60s snapshot cadence.
+REM Collection now fans out one thread per exchange, so the full signal set
+REM finishes in roughly the slowest single exchange's time rather than the sum.
 set "ARGS=%*"
-if "%ARGS%"=="" set "ARGS=--interval 60 --hours 24"
+if "%ARGS%"=="" set "ARGS=--assets volatile --interval 60 --slow-every 10 --hours 168 --skip-ohlcv"
 
 REM Track the output directory for auto-resume
 set "RESUME_DIR="
@@ -29,9 +37,9 @@ echo.
 
 if defined RESUME_DIR (
     echo [RESUME] Resuming from %RESUME_DIR%
-    python -m experiments.collect_statarb_data --resume "%RESUME_DIR%"
+    "%PY%" -m experiments.collect_statarb_data --resume "%RESUME_DIR%"
 ) else (
-    python -m experiments.collect_statarb_data %ARGS%
+    "%PY%" -m experiments.collect_statarb_data %ARGS%
 )
 
 set "EXIT_CODE=%ERRORLEVEL%"

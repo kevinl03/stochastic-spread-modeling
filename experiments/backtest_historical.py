@@ -38,6 +38,7 @@ import pandas as pd
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.fees import TRADING_FEES_TAKER
+from scripts.data import signal_files
 
 # Try to use C++ signal engine for hot-path acceleration
 try:
@@ -76,30 +77,31 @@ def load_jsonl_tickers(data_dir: str) -> Dict[str, Dict[str, pd.DataFrame]]:
     Load JSONL ticker data from the live collector into the same format.
     Returns {asset: {exchange: DataFrame}} with 'timestamp' and 'close' columns.
     """
-    ticker_path = Path(data_dir) / "ticker.jsonl"
-    if not ticker_path.exists():
-        print(f"  Error: {ticker_path} not found")
+    ticker_paths = signal_files(data_dir, "ticker")
+    if not ticker_paths:
+        print(f"  Error: no ticker data found under {data_dir}")
         return {}
 
     records = []
-    with open(ticker_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            rec = json.loads(line)
-            if rec.get("type") != "ticker" or "error" in rec:
-                continue
-            price = rec.get("price_usd")
-            if price is None:
-                continue
-            records.append({
-                "coin": rec["coin"],
-                "exchange": rec["exchange"],
-                "timestamp": int(pd.Timestamp(rec["ts"]).timestamp() * 1000),
-                "close": price,
-                "snapshot_idx": rec.get("snapshot_idx", 0),
-            })
+    for ticker_path in ticker_paths:
+        with open(ticker_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                if rec.get("type") != "ticker" or "error" in rec:
+                    continue
+                price = rec.get("price_usd")
+                if price is None:
+                    continue
+                records.append({
+                    "coin": rec["coin"],
+                    "exchange": rec["exchange"],
+                    "timestamp": int(pd.Timestamp(rec["ts"]).timestamp() * 1000),
+                    "close": price,
+                    "snapshot_idx": rec.get("snapshot_idx", 0),
+                })
 
     if not records:
         return {}
