@@ -18,6 +18,11 @@ build/
 .DS_Store
 Thumbs.db
 
+# Collected run data & exports (multi-GB; published to Hugging Face, not git)
+data/statarb/
+data/exports/
+data/logs/
+
 # LaTeX build artifacts & downloaded class files
 paper/*.pdf
 paper/*.aux
