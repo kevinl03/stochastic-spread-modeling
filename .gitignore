@@ -22,6 +22,8 @@ Thumbs.db
 data/statarb/
 data/exports/
 data/logs/
+data/historical/
+data/ohlcv_live/
 
 # LaTeX build artifacts & downloaded class files
 paper/*.pdf
