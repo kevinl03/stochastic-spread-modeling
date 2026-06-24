@@ -972,8 +972,12 @@ def main():
         args.skip_oi = cfg.get("skip_oi", args.skip_oi)
         args.skip_withdrawal_status = cfg.get("skip_withdrawal_status", args.skip_withdrawal_status)
         args.skip_exchange_status = cfg.get("skip_exchange_status", args.skip_exchange_status)
-        # Restore asset mode
-        resumed_mode = cfg.get("asset_mode", "stablecoins")
+        # Restore asset mode. Older checkpoints did not persist asset_mode;
+        # fall back to whatever --assets was passed (NOT a hardcoded default)
+        # so a resume can never silently switch universes.
+        resumed_mode = cfg.get("asset_mode") or args.assets
+        if "asset_mode" not in cfg:
+            print(f"  [RESUME][WARN] checkpoint has no asset_mode; using --assets={args.assets!r}")
         ACTIVE_COINS, ACTIVE_PERPS = _resolve_asset_config(resumed_mode)
         print(f"  [RESUME] Asset mode: {resumed_mode} \u2192 {len(ACTIVE_COINS)} coins, {len(ACTIVE_PERPS)} perps")
         # Compute remaining time
@@ -1057,6 +1061,7 @@ def main():
         "skip_oi": args.skip_oi,
         "skip_withdrawal_status": args.skip_withdrawal_status,
         "skip_exchange_status": args.skip_exchange_status,
+        "asset_mode": resumed_mode if args.resume else args.assets,
     }
     _state_start_ts = _now_iso() if not args.resume else state["start_ts"]
 

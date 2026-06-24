@@ -284,13 +284,26 @@ def validate_data(df: pd.DataFrame, expected_start: int, expected_end: int) -> d
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    # Force UTF-8 so the → and other non-ASCII output don't crash on Windows cp1252 consoles.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
     parser = argparse.ArgumentParser(description="Download historical OHLCV data for cross-exchange backtesting")
     parser.add_argument("--assets", nargs="+", default=DEFAULT_ASSETS,
                         help=f"Assets to download (default: {' '.join(DEFAULT_ASSETS)})")
     parser.add_argument("--exchanges", nargs="+", default=DEFAULT_EXCHANGES,
                         help="Exchanges to download from (default: all 12)")
     parser.add_argument("--days", type=int, default=30,
-                        help="Number of days of history to download (default: 30)")
+                        help="Number of days of history to download (default: 30). "
+                             "Ignored if --start/--end are given.")
+    parser.add_argument("--start", type=str, default=None,
+                        help="Explicit UTC start (ISO 8601, e.g. 2026-06-13T23:48:00Z). "
+                             "Use with --end to backfill an exact collected window.")
+    parser.add_argument("--end", type=str, default=None,
+                        help="Explicit UTC end (ISO 8601). Defaults to now if only --start given.")
     parser.add_argument("--output-dir", type=str, default="data/historical",
                         help="Output directory (default: data/historical)")
     parser.add_argument("--resume", action="store_true",
@@ -301,10 +314,21 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     progress = DownloadProgress(output_dir)
 
-    # Time range
+    # Time range: explicit --start/--end take precedence over the relative --days window.
+    def _parse_iso(s: str) -> datetime:
+        # Accept trailing 'Z' (Python <3.11 fromisoformat rejects it)
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
     now = datetime.now(timezone.utc)
-    end_time = now.replace(second=0, microsecond=0)
-    start_time = end_time - timedelta(days=args.days)
+    if args.start:
+        start_time = _parse_iso(args.start).replace(second=0, microsecond=0)
+        end_time = (_parse_iso(args.end) if args.end else now).replace(second=0, microsecond=0)
+    else:
+        end_time = now.replace(second=0, microsecond=0)
+        start_time = end_time - timedelta(days=args.days)
+    if end_time <= start_time:
+        raise SystemExit(f"[ERROR] end ({end_time}) must be after start ({start_time})")
     since_ms = int(start_time.timestamp() * 1000)
     until_ms = int(end_time.timestamp() * 1000)
     expected_candles = (until_ms - since_ms) // CANDLE_MS
