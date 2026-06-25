@@ -208,7 +208,7 @@ def fetch_dex_pools(token: str, chain: str, address: str, min_liquidity: float =
 
         # Only include pools where our token is the base token
         # (avoids inverted prices from quote-side pools)
-        base_sym = (base.get("symbol") or "").upper()
+        base_sym = (base.get("symbol") or "").upper().lstrip("$")
         if base_sym != token and base_sym != f"W{token}":
             # For wrapped tokens: WETH=ETH, WBTC=BTC, WAVAX=AVAX, WSOL=SOL
             if not (token == "BTC" and base_sym == "WBTC") and \
