@@ -19,8 +19,12 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from urllib.parse import quote as urlquote
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scripts.data import VOLATILE_COINS
 
 # ΓöÇΓöÇ Token contract addresses on major chains ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Each token maps to {chain: address} for DexScreener lookups.
@@ -83,6 +87,29 @@ TOKEN_ADDRESSES = {
     "WIF": {
         "solana": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
     },
+    "BONK": {
+        "solana": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+    },
+    "SHIB": {
+        "ethereum": "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE",
+    },
+    "FLOKI": {
+        "ethereum": "0xcf0C122c6b73ff809C69376176145A3bFe0C8510",
+        "bsc": "0xfb5B838b6cfEEdC2873aB27866079AC55363D37F",
+    },
+    "SUI": {
+        "sui": "0x2::sui::SUI",
+    },
+    "WLD": {
+        "ethereum": "0x163f8C2467924e0FD367793Dd3269B5814D97390",
+    },
+    "ENA": {
+        "ethereum": "0x57df5a6b5F57433065AcB48e7c8bA8a8D459D6Fc",
+    },
+    "SEI": {
+        "sei": "0xE30feDd158A2e3b13FA9B005105A6670a8a77e9",
+    },
+    # TIA: canonical Cosmos asset — poor DexScreener pool coverage; skip for now.
 }
 
 # Which DEXes we care about (filter noisy low-liquidity pools)
@@ -106,6 +133,15 @@ DEXSCREENER_BASE = "https://api.dexscreener.com"
 REQUEST_DELAY = 0.25  # 300 req/min = 5 req/s, be conservative
 
 
+def _active_tokens() -> dict[str, dict[str, str]]:
+    """VOLATILE_COINS from scripts/data.py with a DexScreener address on at least one chain."""
+    return {
+        coin: chains
+        for coin in VOLATILE_COINS
+        if (chains := TOKEN_ADDRESSES.get(coin))
+    }
+
+
 # ΓöÇΓöÇ JSONL Writer (same pattern as CEX collector) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 class DataWriter:
@@ -123,6 +159,7 @@ class DataWriter:
         line = json.dumps(record, default=str)
         self._files[stream].write(line + "\n")
         self._files[stream].flush()
+        os.fsync(self._files[stream].fileno())
 
     def close(self):
         for f in self._files.values():
@@ -145,7 +182,7 @@ def _api_get(path: str) -> dict | list | None:
 
 def fetch_dex_pools(token: str, chain: str, address: str, min_liquidity: float = 10000) -> list[dict]:
     """Fetch DEX pools for a token on a specific chain."""
-    data = _api_get(f"/token-pairs/v1/{chain}/{address}")
+    data = _api_get(f"/token-pairs/v1/{chain}/{urlquote(address, safe='')}")
     time.sleep(REQUEST_DELAY)
 
     if not data or not isinstance(data, list):
@@ -171,13 +208,14 @@ def fetch_dex_pools(token: str, chain: str, address: str, min_liquidity: float =
 
         # Only include pools where our token is the base token
         # (avoids inverted prices from quote-side pools)
-        base_sym = (base.get("symbol") or "").upper()
+        base_sym = (base.get("symbol") or "").upper().lstrip("$")
         if base_sym != token and base_sym != f"W{token}":
             # For wrapped tokens: WETH=ETH, WBTC=BTC, WAVAX=AVAX, WSOL=SOL
             if not (token == "BTC" and base_sym == "WBTC") and \
                not (token == "ETH" and base_sym == "WETH") and \
                not (token == "AVAX" and base_sym == "WAVAX") and \
-               not (token == "SOL" and base_sym in ("SOL", "WSOL")):
+               not (token == "SOL" and base_sym in ("SOL", "WSOL")) and \
+               not (token == "BONK" and base_sym == "BONK"):
                 continue
 
         pools.append({
@@ -293,14 +331,13 @@ def collect_snapshot(writer: DataWriter, snapshot_idx: int, ts: str,
     token_count = 0
     pool_count = 0
 
-    for token, chains in TOKEN_ADDRESSES.items():
-        if not chains:
-            continue
+    for token, chains in _active_tokens().items():
         token_count += 1
         for chain, address in chains.items():
             pools = fetch_dex_pools(token, chain, address, min_liquidity)
             for pool in pools:
                 pool["snapshot"] = snapshot_idx
+                pool["snapshot_idx"] = snapshot_idx
                 pool["timestamp"] = ts
                 writer.write("dex_pools", pool)
             all_pools.extend(pools)
@@ -310,6 +347,7 @@ def collect_snapshot(writer: DataWriter, snapshot_idx: int, ts: str,
     spreads = compute_dex_spread_matrix(all_pools)
     for s in spreads:
         s["snapshot"] = snapshot_idx
+        s["snapshot_idx"] = snapshot_idx
         s["timestamp"] = ts
         writer.write("dex_spreads", s)
 
@@ -369,15 +407,17 @@ def main():
         "interval_s": args.interval,
         "hours": args.hours,
         "min_liquidity": args.min_liquidity,
-        "tokens": [t for t, c in TOKEN_ADDRESSES.items() if c],
+        "tokens": list(_active_tokens()),
+        "asset_mode": "volatile",
         "api": "DexScreener",
         "snapshot": 0,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     writer.write("run_config", config)
 
-    tokens_with_addresses = [t for t, c in TOKEN_ADDRESSES.items() if c]
-    chains_count = sum(len(c) for c in TOKEN_ADDRESSES.values() if c)
+    active = _active_tokens()
+    tokens_with_addresses = list(active)
+    chains_count = sum(len(c) for c in active.values())
 
     print(f"=== DEX Data Collector (DexScreener) ===")
     print(f"  Output: {os.path.abspath(output_dir)}")

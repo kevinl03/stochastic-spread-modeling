@@ -24,6 +24,7 @@ data/exports/
 data/logs/
 data/historical/
 data/ohlcv_live/
+data/dex/
 
 # LaTeX build artifacts & downloaded class files
 paper/*.pdf
